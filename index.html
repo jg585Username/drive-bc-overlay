@@ -11,7 +11,10 @@
 <h1>BC Traffic Map</h1>
 <!-- The div that will hold the map -->
 <div id="map" style="width:100%;height:600px;"></div>
-
+<h1>Select an Area</h1>
+<select id="areasDropdown">
+    <option value="">--Choose an Area--</option>
+</select>
 <script>
     // Initialize the Google Map
     function initMap() {
@@ -30,6 +33,38 @@
 
     // Call initMap once the page and script load
     window.onload = initMap;
+
+    // Fetch the areas from the Open511 BC API
+    fetch("https://api.open511.gov.bc.ca/areas")
+        .then(response => response.json())
+        .then(data => {
+            // The array of areas
+            const areas = data.areas;
+            const dropdown = document.getElementById("areasDropdown");
+
+            areas.forEach(areaItem => {
+                // Create an <option> element for each area
+                const option = document.createElement("option");
+                // The "value" could be the area ID for filtering
+                option.value = areaItem.id;
+                // The text displayed to the user could be the name
+                option.textContent = areaItem.name;
+                dropdown.appendChild(option);
+            });
+        })
+        .catch(error => {
+            console.error("Error fetching areas:", error);
+        });
+
+    // Listen for user selection
+    document.getElementById("areasDropdown").addEventListener("change", (e) => {
+        const selectedAreaId = e.target.value;
+        console.log("Selected Area ID:", selectedAreaId);
+
+        // If you want to fetch events from this area:
+        // fetch("https://api.open511.gov.bc.ca/events?area_id=" + selectedAreaId)
+        //   .then(...).then(...);
+    });
 </script>
 </body>
 </html>
