@@ -11,44 +11,61 @@
 <h1>BC Traffic Map</h1>
 <!-- The div that will hold the map -->
 <div id="map" style="width:100%;height:600px;"></div>
+
 <h1>Select an Area</h1>
 <select id="areasDropdown">
-    <option value="">--Choose an Area--</option>
+    <option value="">-- Choose an Area --</option>
 </select>
+
 <script>
-    // Initialize the Google Map
+    // 1. We'll store our map in a global variable so we can manipulate it later
+    let map;
+
+    // 2. A lookup of each area ID (drivebc.ca/X) to coordinates
+    //    based on your provided lat/lng for each district
+    const areaCenters = {
+        "drivebc.ca/1":  { lat: 49.2058, lng: -123.0233 }, // Lower Mainland District
+        "drivebc.ca/2":  { lat: 48.4611, lng: -123.3787 }, // Vancouver Island District
+        "drivebc.ca/3":  { lat: 50.5074, lng: -116.0311 }, // Rocky Mountain District
+        "drivebc.ca/4":  { lat: 49.3297, lng: -116.7014 }, // West Kootenay District
+        "drivebc.ca/5":  { lat: 51.0002, lng: -118.1955 }, // Okanagan-Shuswap District
+        "drivebc.ca/6":  { lat: 50.6718, lng: -120.3241 }, // Thompson-Nicola District
+        "drivebc.ca/7":  { lat: 52.9809, lng: -122.4933 }, // Cariboo District
+        "drivebc.ca/8":  { lat: 55.7579, lng: -120.2373 }, // Peace District
+        "drivebc.ca/9":  { lat: 53.9101, lng: -122.7617 }, // Fort George District
+        "drivebc.ca/10": { lat: 54.7814, lng: -127.1661 }, // Bulkley Stikine District
+        "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }  // Skeena District
+    };
+
+    // 3. Initialize the Google Map
     function initMap() {
-        // A default center in BC, for example Vancouver
+        // Default center near Vancouver
         var mapCenter = { lat: 49.2827, lng: -123.1207 };
         var mapOptions = {
             center: mapCenter,
-            zoom: 8,
+            zoom: 6,
         };
 
-        // Create the map
-        var map = new google.maps.Map(document.getElementById("map"), mapOptions);
-
-        // TODO: Fetch data from Open511 and place markers or overlays
+        // Create the map in our global variable
+        map = new google.maps.Map(document.getElementById("map"), mapOptions);
     }
 
-    // Call initMap once the page and script load
+    // 4. Call initMap when the window loads
     window.onload = initMap;
 
-    // Fetch the areas from the Open511 BC API
-    fetch("https://api.open511.gov.bc.ca/areas")
+    // 5. Fetch the areas from the Open511 BC API, requesting JSON format
+    fetch("https://api.open511.gov.bc.ca/areas?format=json")
         .then(response => response.json())
         .then(data => {
-            // The array of areas
+            // data.areas should be an array of area objects
             const areas = data.areas;
             const dropdown = document.getElementById("areasDropdown");
 
             areas.forEach(areaItem => {
-                // Create an <option> element for each area
+                // Create an <option> for each area
                 const option = document.createElement("option");
-                // The "value" could be the area ID for filtering
-                option.value = areaItem.id;
-                // The text displayed to the user could be the name
-                option.textContent = areaItem.name;
+                option.value = areaItem.id;      // e.g. "drivebc.ca/1"
+                option.textContent = areaItem.name; // e.g. "Lower Mainland District"
                 dropdown.appendChild(option);
             });
         })
@@ -56,14 +73,27 @@
             console.error("Error fetching areas:", error);
         });
 
-    // Listen for user selection
+    // 6. Listen for user selection in the dropdown
     document.getElementById("areasDropdown").addEventListener("change", (e) => {
         const selectedAreaId = e.target.value;
         console.log("Selected Area ID:", selectedAreaId);
 
-        // If you want to fetch events from this area:
-        // fetch("https://api.open511.gov.bc.ca/events?area_id=" + selectedAreaId)
-        //   .then(...).then(...);
+        // Look up coordinates in our areaCenters dictionary
+        const coords = areaCenters[selectedAreaId];
+        if (coords) {
+            // Re-center the map on the chosen district
+            map.setCenter(coords);
+            map.setZoom(8);
+        } else {
+            console.warn("No matching coords found for area ID:", selectedAreaId);
+        }
+
+        // (Optional) If you want to fetch events for that area:
+        // fetch("https://api.open511.gov.bc.ca/events?format=json&area_id=" + selectedAreaId)
+        //   .then(res => res.json())
+        //   .then(eventsData => {
+        //       // Place markers, polylines, etc.
+        //   });
     });
 </script>
 </body>
