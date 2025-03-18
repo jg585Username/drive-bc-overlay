@@ -49,8 +49,9 @@
         // Create the map in our global variable
         map = new google.maps.Map(document.getElementById("map"), mapOptions);
 
-        // Once the map is ready, load & draw the GeoJSON roads
-        loadRoadPolylines();
+        // Load BOTH GeoJSON files
+        loadRoadPolylines("map.geojson");
+        loadRoadPolylines("westbay_cypress.geojson");
     }
 
     // 4. Call initMap when the window loads
@@ -84,7 +85,7 @@
         if (coords) {
             // Re-center the map on the chosen district
             map.setCenter(coords);
-            // Increase zoom to 12 (instead of 6 or 8)
+            // Increase zoom to 12 (instead of 6)
             map.setZoom(12);
         } else {
             console.warn("No matching coords found for area ID:", selectedAreaId);
@@ -98,13 +99,12 @@
         //   });
     });
 
-    // 7. Function to load and draw local road polylines from GeoJSON
-    function loadRoadPolylines() {
-        // 'map.geojson' must exist in your project directory
-        fetch("map.geojson")
+    // 7. Function to load and draw local road polylines from a given GeoJSON file
+    function loadRoadPolylines(geojsonFile) {
+        fetch(geojsonFile)
             .then(response => response.json())
             .then(geojsonData => {
-                console.log("Loaded GeoJSON road data:", geojsonData);
+                console.log("Loaded GeoJSON road data from", geojsonFile, geojsonData);
 
                 // Filter for features that have a 'highway' tag (i.e., actual roads)
                 const roadFeatures = geojsonData.features.filter(f => {
@@ -125,7 +125,7 @@
                     // If you have other geometry types, handle them accordingly
                 });
             })
-            .catch(err => console.error("Error loading map.geojson:", err));
+            .catch(err => console.error("Error loading", geojsonFile, err));
     }
 
     // 8. Helper function to create and display a Polyline on the map
@@ -150,4 +150,5 @@
 </script>
 </body>
 </html>
+
 
