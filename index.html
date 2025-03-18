@@ -49,9 +49,12 @@
         // Create the map in our global variable
         map = new google.maps.Map(document.getElementById("map"), mapOptions);
 
-        // Load BOTH GeoJSON files
+        // Load BOTH GeoJSON files (roads)
         loadRoadPolylines("map.geojson");
         loadRoadPolylines("westbay_cypress.geojson");
+
+        // Load events (markers) from Open511
+        loadConstructionEvents();
     }
 
     // 4. Call initMap when the window loads
@@ -85,18 +88,10 @@
         if (coords) {
             // Re-center the map on the chosen district
             map.setCenter(coords);
-            // Increase zoom to 12 (instead of 6)
             map.setZoom(12);
         } else {
             console.warn("No matching coords found for area ID:", selectedAreaId);
         }
-
-        // (Optional) If you want to fetch events for that area:
-        // fetch("https://api.open511.gov.bc.ca/events?format=json&area_id=" + selectedAreaId)
-        //   .then(res => res.json())
-        //   .then(eventsData => {
-        //       // Place markers, polylines, etc.
-        //   });
     });
 
     // 7. Function to load and draw local road polylines from a given GeoJSON file
@@ -104,7 +99,7 @@
         fetch(geojsonFile)
             .then(response => response.json())
             .then(geojsonData => {
-                console.log("Loaded GeoJSON road data from", geojsonFile, geojsonData);
+                console.log("Loaded GeoJSON road data from", geojsonFile);
 
                 // Filter for features that have a 'highway' tag (i.e., actual roads)
                 const roadFeatures = geojsonData.features.filter(f => {
@@ -122,13 +117,12 @@
                             drawPolyline(line);
                         });
                     }
-                    // If you have other geometry types, handle them accordingly
                 });
             })
             .catch(err => console.error("Error loading", geojsonFile, err));
     }
 
-    // 8. Helper function to create and display a Polyline on the map
+    // Helper function to create and display a Polyline on the map
     function drawPolyline(coordsArray) {
         // coordsArray is an array of [longitude, latitude]
         const path = coordsArray.map(coord => {
@@ -147,8 +141,50 @@
             polyline.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
         });
     }
+
+    // 8. Fetch events from Open511 and place a construction icon where event_type=CONSTRUCTION
+    function loadConstructionEvents() {
+        // Query only active events, for example
+        fetch("https://api.open511.gov.bc.ca/events?format=json&status=ACTIVE")
+            .then(res => res.json())
+            .then(data => {
+                if (data.events) {
+                    data.events.forEach(event => {
+                        // Check if this event has event_type = CONSTRUCTION
+                        if (event.event_type === "CONSTRUCTION") {
+                            placeConstructionMarker(event);
+                        }
+                    });
+                }
+            })
+            .catch(err => console.error("Error fetching events:", err));
+    }
+
+    // 9. Create a marker for a construction event, if it has Point geometry
+    function placeConstructionMarker(event) {
+        if (!event.geography) return; // no geometry
+        const geom = event.geography;
+
+        // We handle only simple Point geometry here
+        if (geom.type === "Point" && Array.isArray(geom.coordinates)) {
+            const coords = geom.coordinates; // [longitude, latitude]
+            const latLng = { lat: coords[1], lng: coords[0] };
+
+            // Add a marker with the construction icon
+            new google.maps.Marker({
+                position: latLng,
+                map: map,
+                icon: {
+                    url: "images/construction.png",  // points to your local image
+                    scaledSize: new google.maps.Size(32, 32)
+                },
+                title: event.headline || "Construction Event"
+            });
+        }
+    }
 </script>
 </body>
 </html>
+
 
 
