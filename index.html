@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BC Traffic Map</title>
+    <title>BC Traffic Map with Elevation</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="initial-scale=1.0" />
     <!-- Replace YOUR_API_KEY with your actual API key -->
@@ -10,7 +10,6 @@
 <body>
 
 <h1>BC Traffic Map</h1>
-<!-- The div that will hold the map -->
 <div id="map" style="width:100%;height:600px;"></div>
 
 <h1>Select an Area</h1>
@@ -19,162 +18,227 @@
 </select>
 
 <script>
-    // 1. We'll store our map in a global variable so we can manipulate it later
     let map;
+    // We'll need this for elevation calls
+    let elevationService;
 
-    // 2. A lookup of each area ID (drivebc.ca/X) to coordinates
-    //    based on your provided lat/lng for each district
     const areaCenters = {
-        "drivebc.ca/1":  { lat: 49.2058, lng: -123.0233 }, // Lower Mainland District
-        "drivebc.ca/2":  { lat: 48.4611, lng: -123.3787 }, // Vancouver Island District
-        "drivebc.ca/3":  { lat: 50.5074, lng: -116.0311 }, // Rocky Mountain District
-        "drivebc.ca/4":  { lat: 49.3297, lng: -116.7014 }, // West Kootenay District
-        "drivebc.ca/5":  { lat: 51.0002, lng: -118.1955 }, // Okanagan-Shuswap District
-        "drivebc.ca/6":  { lat: 50.6718, lng: -120.3241 }, // Thompson-Nicola District
-        "drivebc.ca/7":  { lat: 52.9809, lng: -122.4933 }, // Cariboo District
-        "drivebc.ca/8":  { lat: 55.7579, lng: -120.2373 }, // Peace District
-        "drivebc.ca/9":  { lat: 53.9101, lng: -122.7617 }, // Fort George District
-        "drivebc.ca/10": { lat: 54.7814, lng: -127.1661 }, // Bulkley Stikine District
-        "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }  // Skeena District
+        "drivebc.ca/1":  { lat: 49.2058, lng: -123.0233 },
+        "drivebc.ca/2":  { lat: 48.4611, lng: -123.3787 },
+        "drivebc.ca/3":  { lat: 50.5074, lng: -116.0311 },
+        "drivebc.ca/4":  { lat: 49.3297, lng: -116.7014 },
+        "drivebc.ca/5":  { lat: 51.0002, lng: -118.1955 },
+        "drivebc.ca/6":  { lat: 50.6718, lng: -120.3241 },
+        "drivebc.ca/7":  { lat: 52.9809, lng: -122.4933 },
+        "drivebc.ca/8":  { lat: 55.7579, lng: -120.2373 },
+        "drivebc.ca/9":  { lat: 53.9101, lng: -122.7617 },
+        "drivebc.ca/10": { lat: 54.7814, lng: -127.1661 },
+        "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }
     };
 
-    // 3. Initialize the Google Map
     function initMap() {
-        // Default center near Vancouver
-        const mapCenter = { lat: 49.2827, lng: -123.1207 };
-        const mapOptions = {
-            center: mapCenter,
+        map = new google.maps.Map(document.getElementById("map"), {
+            center: { lat: 49.2827, lng: -123.1207 },
             zoom: 6
-        };
+        });
 
-        map = new google.maps.Map(document.getElementById("map"), mapOptions);
+        // Elevation Service
+        elevationService = new google.maps.ElevationService();
 
-        // Load BOTH GeoJSON files (roads)
+        // Load roads
         loadRoadPolylines("map.geojson");
         loadRoadPolylines("westbay_cypress.geojson");
 
-        // Load events (markers) from Open511
+        // Load events
         loadEventsWithIcons();
     }
 
-    // 4. Call initMap when the window loads
     window.onload = initMap;
 
-    // 5. Fetch the areas from the Open511 BC API, requesting JSON format
+    // Fetch areas from Open511
     fetch("https://api.open511.gov.bc.ca/areas?format=json")
-        .then(response => response.json())
+        .then(r => r.json())
         .then(data => {
             const areas = data.areas;
             const dropdown = document.getElementById("areasDropdown");
-
             areas.forEach(areaItem => {
                 const option = document.createElement("option");
-                option.value = areaItem.id;         // e.g. "drivebc.ca/1"
-                option.textContent = areaItem.name; // e.g. "Lower Mainland District"
+                option.value = areaItem.id;
+                option.textContent = areaItem.name;
                 dropdown.appendChild(option);
             });
         })
-        .catch(error => {
-            console.error("Error fetching areas:", error);
-        });
+        .catch(err => console.error("Error fetching areas:", err));
 
-    // 6. Listen for user selection in the dropdown
-    document.getElementById("areasDropdown").addEventListener("change", (e) => {
+    document.getElementById("areasDropdown").addEventListener("change", e => {
         const selectedAreaId = e.target.value;
-        console.log("Selected Area ID:", selectedAreaId);
-
-        // Look up coordinates in our areaCenters dictionary
         const coords = areaCenters[selectedAreaId];
         if (coords) {
             map.setCenter(coords);
             map.setZoom(12);
-        } else {
-            console.warn("No matching coords found for area ID:", selectedAreaId);
         }
     });
 
-    // 7. Function to load and draw local road polylines from a given GeoJSON file
-    function loadRoadPolylines(geojsonFile) {
-        fetch(geojsonFile)
-            .then(response => response.json())
-            .then(geojsonData => {
-                console.log("Loaded GeoJSON from", geojsonFile);
-
-                // Filter for features that have a 'highway' tag (i.e. actual roads)
-                const roadFeatures = geojsonData.features.filter(f => {
-                    return f.properties && f.properties.highway;
-                });
-
-                // For each road feature, draw a Polyline (and store road name/length)
+    function loadRoadPolylines(file) {
+        fetch(file)
+            .then(r => r.json())
+            .then(geo => {
+                const roadFeatures = geo.features.filter(f => f.properties && f.properties.highway);
                 roadFeatures.forEach(feature => {
                     const geom = feature.geometry;
-                    const roadName = feature.properties.name || "(Unnamed Road)";
-                    const roadLengthKm = calculateLineLength(geom);
+                    const name = feature.properties.name || "(Unnamed Road)";
+                    const lengthKm = calculateLineLength(geom);
 
                     if (geom.type === "LineString") {
-                        drawPolyline(geom.coordinates, roadName, roadLengthKm);
+                        drawPolyline(geom.coordinates, name, lengthKm);
                     } else if (geom.type === "MultiLineString") {
-                        geom.coordinates.forEach(lineCoords => {
-                            drawPolyline(lineCoords, roadName, roadLengthKm);
+                        geom.coordinates.forEach(line => {
+                            drawPolyline(line, name, lengthKm);
                         });
                     }
                 });
             })
-            .catch(err => console.error("Error loading", geojsonFile, err));
+            .catch(err => console.error("Error loading", file, err));
     }
 
-    // Helper function to create a Polyline on the map
-    // We also store the road name and length in the polyline object
+    // Create a polyline and add click listener
     function drawPolyline(coordsArray, roadName, roadLengthKm) {
-        const path = coordsArray.map(c => ({ lat: c[1], lng: c[0] }));
-
+        const pathLatLng = coordsArray.map(c => ({ lat: c[1], lng: c[0] }));
         const polyline = new google.maps.Polyline({
-            path,
+            path: pathLatLng,
             strokeColor: "#0000FF",
             strokeWeight: 2,
             map
         });
 
-        // Attach metadata so we can display it later
+        // store metadata
         polyline.roadName = roadName;
         polyline.roadLength = roadLengthKm;
+        polyline.pathLatLng = pathLatLng;
 
-        // On click, highlight the road and show an InfoWindow with name & length
         polyline.addListener("click", (e) => {
-            // highlight in red
+            // highlight
             polyline.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
-
-            // Show an InfoWindow near the click location
-            showRoadInfo(polyline, e.latLng);
+            // get elevation + slope
+            getElevationAndShowInfo(polyline, e.latLng);
         });
     }
 
-    // Display an InfoWindow with the road's name and approximate length
-    function showRoadInfo(polyline, clickLocation) {
-        const contentString = `
-          <div style="min-width:150px;">
+    // Use ElevationService to get a set of samples along the path
+    function getElevationAndShowInfo(polyline, clickLocation) {
+        // We'll sample the path at, say, 50 points
+        const pathRequest = {
+            path: polyline.pathLatLng,
+            samples: 50
+        };
+
+        elevationService.getElevationAlongPath(pathRequest, (results, status) => {
+            if (status === "OK" && results && results.length > 1) {
+                // compute slope from first to last
+                const elevStart = results[0].elevation;
+                const elevEnd   = results[results.length - 1].elevation;
+                const slopePercent = computeSlopePercent(polyline.pathLatLng, elevStart, elevEnd);
+                // Build a small chart data array
+                const elevations = results.map(r => r.elevation);
+
+                // Show InfoWindow
+                showRoadInfoWithElevation(polyline, clickLocation, elevations, slopePercent);
+            } else {
+                console.warn("ElevationService failed:", status);
+                showRoadInfoWithElevation(polyline, clickLocation, null, null);
+            }
+        });
+    }
+
+    // Slope = (end_elev - start_elev) / horizontal_distance * 100%
+    function computeSlopePercent(pathLatLng, elevStart, elevEnd) {
+        // horizontal distance in km between first and last point
+        const latLng1 = pathLatLng[0];
+        const latLng2 = pathLatLng[pathLatLng.length - 1];
+        const distKm = haversineDistance(latLng1.lat, latLng1.lng, latLng2.lat, latLng2.lng);
+        const distM  = distKm * 1000;  // in meters
+
+        const elevChange = elevEnd - elevStart; // in meters if Elevation API returns meters
+        // slope in percent
+        return (elevChange / distM) * 100;
+    }
+
+    // Build an InfoWindow with a mini chart + slope
+    function showRoadInfoWithElevation(polyline, clickLocation, elevationArray, slopePercent) {
+        // Build HTML
+        let slopeText = slopePercent !== null
+            ? slopePercent.toFixed(2) + "%"
+            : "(No Elevation Data)";
+
+        let content = `
+          <div style="min-width:200px;">
             <p><strong>Road Name:</strong> ${polyline.roadName}</p>
             <p><strong>Length (approx):</strong> ${polyline.roadLength.toFixed(2)} km</p>
-          </div>
+            <p><strong>Slope (start-end):</strong> ${slopeText}</p>
         `;
 
+        // If we have elevation data, add a simple canvas chart
+        if (elevationArray) {
+            content += `
+            <p><strong>Elevation Profile:</strong></p>
+            <canvas id="elevChart" width="200" height="100" style="border:1px solid #ccc;"></canvas>
+          `;
+        }
+        content += `</div>`;
+
         const infoWindow = new google.maps.InfoWindow({
-            content: contentString,
+            content,
             position: clickLocation
         });
         infoWindow.open({ map });
+
+        // Once the InfoWindow is rendered, we can draw the chart if we have data
+        if (elevationArray) {
+            google.maps.event.addListenerOnce(infoWindow, "domready", () => {
+                drawElevationChart("elevChart", elevationArray);
+            });
+        }
     }
 
-    // 8. Fetch events from Open511 and place different icons for each event_type
+    // A simple "sparkline" approach using the <canvas>
+    function drawElevationChart(canvasId, elevations) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const ctx = canvas.getContext("2d");
+        // find min & max to scale
+        const min = Math.min(...elevations);
+        const max = Math.max(...elevations);
+        const range = max - min || 1;
+
+        // draw polyline on the canvas
+        const width  = canvas.width;
+        const height = canvas.height;
+        ctx.clearRect(0, 0, width, height);
+
+        ctx.beginPath();
+        elevations.forEach((elev, i) => {
+            // x from 0..width
+            const x = (i / (elevations.length - 1)) * width;
+            // y: 0 at top, so we invert
+            const normalized = (elev - min) / range; // 0..1
+            const y = height - (normalized * height);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = "#FF0000";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    // events with icons (unchanged from your code)
     function loadEventsWithIcons() {
-        // Example: only ACTIVE events
         fetch("https://api.open511.gov.bc.ca/events?format=json&status=ACTIVE")
             .then(res => res.json())
             .then(data => {
                 if (data.events) {
                     data.events.forEach(event => {
-                        // We'll place markers for these three types
-                        if (["CONSTRUCTION", "SPECIAL_EVENT", "INCIDENT"].includes(event.event_type)) {
+                        if (["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(event.event_type)) {
                             placeEventMarker(event);
                         }
                     });
@@ -183,56 +247,33 @@
             .catch(err => console.error("Error fetching events:", err));
     }
 
-    // 9. Place a marker for CONSTRUCTION, SPECIAL_EVENT, or INCIDENT, with an InfoWindow on click
     function placeEventMarker(event) {
-        if (!event.geography || event.geography.type !== "Point") {
-            return; // skip if not a point geometry
-        }
-
-        const coords = event.geography.coordinates; // [longitude, latitude]
-        if (!Array.isArray(coords) || coords.length < 2) {
-            return;
-        }
+        if (!event.geography || event.geography.type !== "Point") return;
+        const coords = event.geography.coordinates; // [lon, lat]
+        if (!Array.isArray(coords) || coords.length < 2) return;
         const position = { lat: coords[1], lng: coords[0] };
 
-        // Pick an icon based on the event_type
-        let iconUrl = "";
+        let iconUrl;
         switch (event.event_type) {
-            case "CONSTRUCTION":
-                iconUrl = "images/construction.png";
-                break;
-            case "SPECIAL_EVENT":
-                iconUrl = "images/special_event.png";
-                break;
-            case "INCIDENT":
-                iconUrl = "images/incident.png";
-                break;
-            default:
-                return; // skip
+            case "CONSTRUCTION":   iconUrl = "images/construction.png"; break;
+            case "SPECIAL_EVENT":  iconUrl = "images/special_event.png"; break;
+            case "INCIDENT":       iconUrl = "images/incident.png"; break;
+            default: return;
         }
 
-        // Create a marker
         const marker = new google.maps.Marker({
             position,
             map,
-            icon: {
-                url: iconUrl,
-                scaledSize: new google.maps.Size(32, 32)
-            },
+            icon: { url: iconUrl, scaledSize: new google.maps.Size(32, 32) },
             title: event.headline || event.event_type || "Open511 Event"
         });
 
-        // Build an InfoWindow with relevant details
         const infoWindowContent = buildInfoWindowContent(event);
         const infoWindow = new google.maps.InfoWindow({ content: infoWindowContent });
-
-        // Open the InfoWindow on marker click
-        marker.addListener("click", () => {
-            infoWindow.open({ anchor: marker, map });
-        });
+        marker.addListener("click", () => { infoWindow.open({ anchor: marker, map }); });
     }
 
-    // 10. Construct an HTML string for the InfoWindow
+    // unchanged from your code
     function buildInfoWindowContent(event) {
         const headline     = event.headline     || "(No Headline)";
         const description  = event.description  || "(No Description)";
@@ -253,13 +294,9 @@
         `;
     }
 
-    /**
-     * Calculate approximate length (in kilometers) of a line or multiline using Haversine formula.
-     * geometry can be a GeoJSON geometry object (LineString or MultiLineString).
-     */
+    // The same haversine functions from earlier
     function calculateLineLength(geometry) {
         let totalKm = 0;
-
         if (geometry.type === "LineString") {
             totalKm = computeCoordsDistance(geometry.coordinates);
         } else if (geometry.type === "MultiLineString") {
@@ -270,9 +307,6 @@
         return totalKm;
     }
 
-    /**
-     * Sum distances between consecutive points in coords array (array of [lon, lat]).
-     */
     function computeCoordsDistance(coordsArray) {
         let dist = 0;
         for (let i = 0; i < coordsArray.length - 1; i++) {
@@ -283,25 +317,18 @@
         return dist;
     }
 
-    /**
-     * Haversine formula: returns distance in kilometers between two lat/lng points.
-     */
     function haversineDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371; // Earth's radius in km
+        const R = 6371;
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
-        const a = Math.sin(dLat / 2) ** 2 +
-            Math.sin(dLon / 2) ** 2 * Math.cos(toRad(lat1)) * Math.cos(toRad(lat2));
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
+        const a = Math.sin(dLat/2)**2
+            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c; // in km
     }
 
-    function toRad(value) {
-        return (value * Math.PI) / 180;
-    }
+    function toRad(v) { return (v * Math.PI) / 180; }
+
 </script>
-
 </body>
 </html>
-
-
