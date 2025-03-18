@@ -46,7 +46,6 @@
             zoom: 6
         };
 
-        // Create the map in our global variable
         map = new google.maps.Map(document.getElementById("map"), mapOptions);
 
         // Load BOTH GeoJSON files (roads)
@@ -86,7 +85,6 @@
         // Look up coordinates in our areaCenters dictionary
         const coords = areaCenters[selectedAreaId];
         if (coords) {
-            // Re-center the map on the chosen district
             map.setCenter(coords);
             map.setZoom(12);
         } else {
@@ -99,44 +97,37 @@
         fetch(geojsonFile)
             .then(response => response.json())
             .then(geojsonData => {
-                console.log("Loaded GeoJSON road data from", geojsonFile);
+                console.log("Loaded GeoJSON from", geojsonFile);
 
-                // Filter for features that have a 'highway' tag (i.e., actual roads)
+                // Filter for features that have a 'highway' tag (i.e. actual roads)
                 const roadFeatures = geojsonData.features.filter(f => {
                     return f.properties && f.properties.highway;
                 });
 
-                // For each road feature, draw a Polyline on the map
+                // For each road feature, draw a Polyline
                 roadFeatures.forEach(feature => {
                     const geom = feature.geometry;
                     if (geom.type === "LineString") {
                         drawPolyline(geom.coordinates);
                     } else if (geom.type === "MultiLineString") {
-                        // A MultiLineString can contain multiple coordinate arrays
-                        geom.coordinates.forEach(line => {
-                            drawPolyline(line);
-                        });
+                        geom.coordinates.forEach(line => drawPolyline(line));
                     }
                 });
             })
             .catch(err => console.error("Error loading", geojsonFile, err));
     }
 
-    // Helper function to create and display a Polyline on the map
+    // Helper function to create a Polyline on the map
     function drawPolyline(coordsArray) {
-        // coordsArray is an array of [longitude, latitude]
-        const path = coordsArray.map(coord => {
-            return { lat: coord[1], lng: coord[0] };
-        });
-
+        const path = coordsArray.map(c => ({ lat: c[1], lng: c[0] }));
         const polyline = new google.maps.Polyline({
-            path: path,
+            path,
             strokeColor: "#0000FF",
             strokeWeight: 2,
-            map: map
+            map
         });
 
-        // Optional: click listener to highlight the road
+        // Optional: highlight the road on click
         polyline.addListener("click", () => {
             polyline.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
         });
@@ -150,34 +141,30 @@
             .then(data => {
                 if (data.events) {
                     data.events.forEach(event => {
-                        placeEventMarkerIfRelevant(event);
+                        // We'll place markers for these three types
+                        if (["CONSTRUCTION", "SPECIAL_EVENT", "INCIDENT"].includes(event.event_type)) {
+                            placeEventMarker(event);
+                        }
                     });
                 }
             })
             .catch(err => console.error("Error fetching events:", err));
     }
 
-    // 9. Place a marker for CONSTRUCTION, SPECIAL_EVENT, or INCIDENT (if we have point geometry)
-    function placeEventMarkerIfRelevant(event) {
-        // Only handle specific types
-        if (!["CONSTRUCTION", "SPECIAL_EVENT", "INCIDENT"].includes(event.event_type)) {
-            return; // skip other event types
-        }
-
-        // We only handle point geometry here
+    // 9. Place a marker for CONSTRUCTION, SPECIAL_EVENT, or INCIDENT, with an InfoWindow on click
+    function placeEventMarker(event) {
         if (!event.geography || event.geography.type !== "Point") {
-            return;
+            return; // skip if not a point geometry
         }
 
-        const coords = event.geography.coordinates; // [lon, lat]
+        const coords = event.geography.coordinates; // [longitude, latitude]
         if (!Array.isArray(coords) || coords.length < 2) {
             return;
         }
-
         const position = { lat: coords[1], lng: coords[0] };
-        let iconUrl;
 
-        // Pick an icon based on the event type
+        // Pick an icon based on the event_type
+        let iconUrl = "";
         switch (event.event_type) {
             case "CONSTRUCTION":
                 iconUrl = "images/construction.png";
@@ -189,11 +176,11 @@
                 iconUrl = "images/incident.png";
                 break;
             default:
-                // If we get here, do nothing or pick a default icon
-                return;
+                return; // skip
         }
 
-        new google.maps.Marker({
+        // Create a marker
+        const marker = new google.maps.Marker({
             position,
             map,
             icon: {
@@ -202,10 +189,46 @@
             },
             title: event.headline || event.event_type || "Open511 Event"
         });
+
+        // Build an InfoWindow with relevant details
+        const infoWindowContent = buildInfoWindowContent(event);
+        const infoWindow = new google.maps.InfoWindow({ content: infoWindowContent });
+
+        // Open the InfoWindow on marker click
+        marker.addListener("click", () => {
+            infoWindow.open({ anchor: marker, map });
+        });
+    }
+
+    // 10. Construct an HTML string for the InfoWindow
+    function buildInfoWindowContent(event) {
+        // Here, we pick "the most important things/categories":
+        // e.g. headline, description, severity, status, created, updated
+        // You can add more as needed (road name, schedule, etc.)
+
+        const headline     = event.headline     || "(No Headline)";
+        const description  = event.description  || "(No Description)";
+        const severity     = event.severity     || "(No Severity)";
+        const status       = event.status       || "(No Status)";
+        const createdDate  = event.created      || "(No Created Date)";
+        const updatedDate  = event.updated      || "(No Updated Date)";
+
+        // Wrap them in HTML
+        return `
+          <div style="min-width:250px">
+            <h3>${headline} (${event.event_type})</h3>
+            <p><strong>Description:</strong> ${description}</p>
+            <p><strong>Severity:</strong> ${severity}</p>
+            <p><strong>Status:</strong> ${status}</p>
+            <p><strong>Created:</strong> ${createdDate}</p>
+            <p><strong>Updated:</strong> ${updatedDate}</p>
+          </div>
+        `;
     }
 </script>
 </body>
 </html>
+
 
 
 
