@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BC Traffic Map with Elevation</title>
+    <title>BC Traffic Map with Elevation & Axis Labels</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="initial-scale=1.0" />
-    <!-- Replace YOUR_API_KEY with your actual API key -->
+    <!-- Replace YOUR_API_KEY with your actual API key that has Elevation API enabled -->
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCIzypwXHVm4201GULNbcXz3L1fMPEaouE"></script>
 </head>
 <body>
 
 <h1>BC Traffic Map</h1>
-<div id="map" style="width:100%;height:600px;"></div>
+<div id="map" style="width:100%; height:600px;"></div>
 
 <h1>Select an Area</h1>
 <select id="areasDropdown">
@@ -19,9 +19,9 @@
 
 <script>
     let map;
-    // We'll need this for elevation calls
     let elevationService;
 
+    // Predefined area centers for BC
     const areaCenters = {
         "drivebc.ca/1":  { lat: 49.2058, lng: -123.0233 },
         "drivebc.ca/2":  { lat: 48.4611, lng: -123.3787 },
@@ -42,7 +42,7 @@
             zoom: 6
         });
 
-        // Elevation Service
+        // Elevation service
         elevationService = new google.maps.ElevationService();
 
         // Load roads
@@ -61,24 +61,25 @@
         .then(data => {
             const areas = data.areas;
             const dropdown = document.getElementById("areasDropdown");
-            areas.forEach(areaItem => {
-                const option = document.createElement("option");
-                option.value = areaItem.id;
-                option.textContent = areaItem.name;
-                dropdown.appendChild(option);
+            areas.forEach(a => {
+                const opt = document.createElement("option");
+                opt.value = a.id;
+                opt.textContent = a.name;
+                dropdown.appendChild(opt);
             });
         })
         .catch(err => console.error("Error fetching areas:", err));
 
     document.getElementById("areasDropdown").addEventListener("change", e => {
-        const selectedAreaId = e.target.value;
-        const coords = areaCenters[selectedAreaId];
+        const selectedId = e.target.value;
+        const coords = areaCenters[selectedId];
         if (coords) {
             map.setCenter(coords);
             map.setZoom(12);
         }
     });
 
+    // Load road data from local GeoJSON
     function loadRoadPolylines(file) {
         fetch(file)
             .then(r => r.json())
@@ -101,7 +102,6 @@
             .catch(err => console.error("Error loading", file, err));
     }
 
-    // Create a polyline and add click listener
     function drawPolyline(coordsArray, roadName, roadLengthKm) {
         const pathLatLng = coordsArray.map(c => ({ lat: c[1], lng: c[0] }));
         const polyline = new google.maps.Polyline({
@@ -111,7 +111,6 @@
             map
         });
 
-        // store metadata
         polyline.roadName = roadName;
         polyline.roadLength = roadLengthKm;
         polyline.pathLatLng = pathLatLng;
@@ -119,29 +118,24 @@
         polyline.addListener("click", (e) => {
             // highlight
             polyline.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
-            // get elevation + slope
+            // fetch elevation
             getElevationAndShowInfo(polyline, e.latLng);
         });
     }
 
-    // Use ElevationService to get a set of samples along the path
+    // Use ElevationService along path
     function getElevationAndShowInfo(polyline, clickLocation) {
-        // We'll sample the path at, say, 50 points
         const pathRequest = {
             path: polyline.pathLatLng,
             samples: 50
         };
-
         elevationService.getElevationAlongPath(pathRequest, (results, status) => {
             if (status === "OK" && results && results.length > 1) {
-                // compute slope from first to last
                 const elevStart = results[0].elevation;
                 const elevEnd   = results[results.length - 1].elevation;
                 const slopePercent = computeSlopePercent(polyline.pathLatLng, elevStart, elevEnd);
-                // Build a small chart data array
-                const elevations = results.map(r => r.elevation);
 
-                // Show InfoWindow
+                const elevations = results.map(r => r.elevation);
                 showRoadInfoWithElevation(polyline, clickLocation, elevations, slopePercent);
             } else {
                 console.warn("ElevationService failed:", status);
@@ -150,40 +144,36 @@
         });
     }
 
-    // Slope = (end_elev - start_elev) / horizontal_distance * 100%
+    // slope = (end_elev - start_elev)/(distance in m) *100%
     function computeSlopePercent(pathLatLng, elevStart, elevEnd) {
-        // horizontal distance in km between first and last point
         const latLng1 = pathLatLng[0];
         const latLng2 = pathLatLng[pathLatLng.length - 1];
         const distKm = haversineDistance(latLng1.lat, latLng1.lng, latLng2.lat, latLng2.lng);
-        const distM  = distKm * 1000;  // in meters
-
-        const elevChange = elevEnd - elevStart; // in meters if Elevation API returns meters
-        // slope in percent
+        const distM = distKm * 1000;
+        const elevChange = elevEnd - elevStart;
         return (elevChange / distM) * 100;
     }
 
-    // Build an InfoWindow with a mini chart + slope
+    // Show InfoWindow with slope + custom chart
     function showRoadInfoWithElevation(polyline, clickLocation, elevationArray, slopePercent) {
-        // Build HTML
-        let slopeText = slopePercent !== null
-            ? slopePercent.toFixed(2) + "%"
-            : "(No Elevation Data)";
+        let slopeText = slopePercent !== null ? slopePercent.toFixed(2) + "%" : "(No data)";
 
+        // We'll pass the roadName so we can label the chart ends
         let content = `
-          <div style="min-width:200px;">
-            <p><strong>Road Name:</strong> ${polyline.roadName}</p>
-            <p><strong>Length (approx):</strong> ${polyline.roadLength.toFixed(2)} km</p>
-            <p><strong>Slope (start-end):</strong> ${slopeText}</p>
-        `;
+    <div style="min-width:220px;">
+      <p><strong>Road Name:</strong> ${polyline.roadName}</p>
+      <p><strong>Length (approx):</strong> ${polyline.roadLength.toFixed(2)} km</p>
+      <p><strong>Slope (start-end):</strong> ${slopeText}</p>
+  `;
 
-        // If we have elevation data, add a simple canvas chart
         if (elevationArray) {
             content += `
-            <p><strong>Elevation Profile:</strong></p>
-            <canvas id="elevChart" width="200" height="100" style="border:1px solid #ccc;"></canvas>
-          `;
+      <p><strong>Elevation Profile:</strong></p>
+      <!-- We'll label the left and right ends as Start/End for this road -->
+      <canvas id="elevChart" width="300" height="150" style="border:1px solid #ccc;"></canvas>
+    `;
         }
+
         content += `</div>`;
 
         const infoWindow = new google.maps.InfoWindow({
@@ -192,37 +182,86 @@
         });
         infoWindow.open({ map });
 
-        // Once the InfoWindow is rendered, we can draw the chart if we have data
+        // Once DOM is ready, draw chart with axis
         if (elevationArray) {
             google.maps.event.addListenerOnce(infoWindow, "domready", () => {
-                drawElevationChart("elevChart", elevationArray);
+                drawElevationChart("elevChart", elevationArray, polyline.roadName);
             });
         }
     }
 
-    // A simple "sparkline" approach using the <canvas>
-    function drawElevationChart(canvasId, elevations) {
+    // A simple chart with axis + "Start of X" / "End of X"
+    function drawElevationChart(canvasId, elevations, roadName) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
 
         const ctx = canvas.getContext("2d");
-        // find min & max to scale
-        const min = Math.min(...elevations);
-        const max = Math.max(...elevations);
-        const range = max - min || 1;
-
-        // draw polyline on the canvas
         const width  = canvas.width;
         const height = canvas.height;
+
+        // Margins for axis
+        const marginLeft   = 40;
+        const marginRight  = 20;
+        const marginTop    = 20;
+        const marginBottom = 40;
+
+        // Chart drawing region
+        const chartWidth  = width  - marginLeft - marginRight;
+        const chartHeight = height - marginTop  - marginBottom;
+
+        // Data stats
+        const minElev = Math.min(...elevations);
+        const maxElev = Math.max(...elevations);
+        const range   = (maxElev - minElev) || 1;
+
+        // Clear the canvas
         ctx.clearRect(0, 0, width, height);
 
+        // 1) Draw axes
+        ctx.beginPath();
+        // Y-axis
+        ctx.moveTo(marginLeft, marginTop);
+        ctx.lineTo(marginLeft, marginTop + chartHeight);
+        // X-axis
+        ctx.lineTo(marginLeft + chartWidth, marginTop + chartHeight);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // 2) Draw X axis labels: "Start of RoadName" at left, "End of RoadName" at right
+        ctx.font = "12px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText("Start of " + roadName, marginLeft, marginTop + chartHeight + 20);
+
+        ctx.textAlign = "right";
+        ctx.fillText("End of " + roadName, marginLeft + chartWidth, marginTop + chartHeight + 20);
+
+        // 3) Y-axis ticks/labels (for simplicity, 3 or 4 ticks: min, mid, max)
+        //    You can do more increments if you'd like
+        const numTicks = 3;
+        for (let i = 0; i <= numTicks; i++) {
+            const value = minElev + (range * i / numTicks);
+            const y = marginTop + chartHeight - ((value - minElev)/range)*chartHeight;
+
+            ctx.beginPath();
+            ctx.moveTo(marginLeft - 5, y);
+            ctx.lineTo(marginLeft, y);
+            ctx.stroke();
+
+            ctx.textAlign = "right";
+            ctx.fillText(value.toFixed(0)+"m", marginLeft - 8, y+3); // label
+        }
+
+        // 4) Plot the line
         ctx.beginPath();
         elevations.forEach((elev, i) => {
-            // x from 0..width
-            const x = (i / (elevations.length - 1)) * width;
-            // y: 0 at top, so we invert
-            const normalized = (elev - min) / range; // 0..1
-            const y = height - (normalized * height);
+            // scale to chart area
+            const xRatio = i/(elevations.length-1);
+            const x = marginLeft + (xRatio * chartWidth);
+
+            const elevNorm = (elev - minElev)/range;
+            const y = marginTop + chartHeight - (elevNorm * chartHeight);
+
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         });
@@ -231,70 +270,7 @@
         ctx.stroke();
     }
 
-    // events with icons (unchanged from your code)
-    function loadEventsWithIcons() {
-        fetch("https://api.open511.gov.bc.ca/events?format=json&status=ACTIVE")
-            .then(res => res.json())
-            .then(data => {
-                if (data.events) {
-                    data.events.forEach(event => {
-                        if (["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(event.event_type)) {
-                            placeEventMarker(event);
-                        }
-                    });
-                }
-            })
-            .catch(err => console.error("Error fetching events:", err));
-    }
-
-    function placeEventMarker(event) {
-        if (!event.geography || event.geography.type !== "Point") return;
-        const coords = event.geography.coordinates; // [lon, lat]
-        if (!Array.isArray(coords) || coords.length < 2) return;
-        const position = { lat: coords[1], lng: coords[0] };
-
-        let iconUrl;
-        switch (event.event_type) {
-            case "CONSTRUCTION":   iconUrl = "images/construction.png"; break;
-            case "SPECIAL_EVENT":  iconUrl = "images/special_event.png"; break;
-            case "INCIDENT":       iconUrl = "images/incident.png"; break;
-            default: return;
-        }
-
-        const marker = new google.maps.Marker({
-            position,
-            map,
-            icon: { url: iconUrl, scaledSize: new google.maps.Size(32, 32) },
-            title: event.headline || event.event_type || "Open511 Event"
-        });
-
-        const infoWindowContent = buildInfoWindowContent(event);
-        const infoWindow = new google.maps.InfoWindow({ content: infoWindowContent });
-        marker.addListener("click", () => { infoWindow.open({ anchor: marker, map }); });
-    }
-
-    // unchanged from your code
-    function buildInfoWindowContent(event) {
-        const headline     = event.headline     || "(No Headline)";
-        const description  = event.description  || "(No Description)";
-        const severity     = event.severity     || "(No Severity)";
-        const status       = event.status       || "(No Status)";
-        const createdDate  = event.created      || "(No Created Date)";
-        const updatedDate  = event.updated      || "(No Updated Date)";
-
-        return `
-          <div style="min-width:250px">
-            <h3>${headline} (${event.event_type})</h3>
-            <p><strong>Description:</strong> ${description}</p>
-            <p><strong>Severity:</strong> ${severity}</p>
-            <p><strong>Status:</strong> ${status}</p>
-            <p><strong>Created:</strong> ${createdDate}</p>
-            <p><strong>Updated:</strong> ${updatedDate}</p>
-          </div>
-        `;
-    }
-
-    // The same haversine functions from earlier
+    // Compute approximate length of the geometry in km
     function calculateLineLength(geometry) {
         let totalKm = 0;
         if (geometry.type === "LineString") {
@@ -307,28 +283,96 @@
         return totalKm;
     }
 
-    function computeCoordsDistance(coordsArray) {
+    // Sum distances for consecutive coords
+    function computeCoordsDistance(coords) {
         let dist = 0;
-        for (let i = 0; i < coordsArray.length - 1; i++) {
-            const [lon1, lat1] = coordsArray[i];
-            const [lon2, lat2] = coordsArray[i + 1];
+        for (let i=0; i<coords.length-1; i++) {
+            const [lon1, lat1] = coords[i];
+            const [lon2, lat2] = coords[i+1];
             dist += haversineDistance(lat1, lon1, lat2, lon2);
         }
         return dist;
     }
 
+    // Haversine for lat/lon in degrees, returns km
     function haversineDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371;
+        const R = 6371; // Earth radius in km
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
         const a = Math.sin(dLat/2)**2
-            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+            + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c; // in km
+        return R*c;
     }
 
-    function toRad(v) { return (v * Math.PI) / 180; }
+    function toRad(val){ return (val * Math.PI)/180; }
 
+    // Load events from Open511, place markers for 3 event types
+    function loadEventsWithIcons() {
+        fetch("https://api.open511.gov.bc.ca/events?format=json&status=ACTIVE")
+            .then(r => r.json())
+            .then(data => {
+                if (data.events) {
+                    data.events.forEach(e => {
+                        if(["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(e.event_type)){
+                            placeEventMarker(e);
+                        }
+                    });
+                }
+            })
+            .catch(err => console.error("Error fetching events:", err));
+    }
+
+    function placeEventMarker(event) {
+        if (!event.geography || event.geography.type !== "Point") return;
+        const coords = event.geography.coordinates;
+        if (!Array.isArray(coords) || coords.length<2) return;
+
+        const position = { lat: coords[1], lng: coords[0] };
+
+        let iconUrl;
+        switch(event.event_type){
+            case "CONSTRUCTION":  iconUrl="images/construction.png"; break;
+            case "SPECIAL_EVENT": iconUrl="images/special_event.png"; break;
+            case "INCIDENT":      iconUrl="images/incident.png"; break;
+            default: return;
+        }
+
+        const marker = new google.maps.Marker({
+            position,
+            map,
+            icon: {
+                url: iconUrl,
+                scaledSize: new google.maps.Size(32,32)
+            },
+            title: event.headline || event.event_type || "Open511 Event"
+        });
+
+        const infoWindowContent = buildInfoWindowContent(event);
+        const infoWindow = new google.maps.InfoWindow({ content: infoWindowContent });
+        marker.addListener("click", () => infoWindow.open({ anchor: marker, map }));
+    }
+
+    function buildInfoWindowContent(event){
+        const headline    = event.headline     || "(No Headline)";
+        const description = event.description  || "(No Description)";
+        const severity    = event.severity     || "(No Severity)";
+        const status      = event.status       || "(No Status)";
+        const createdDate = event.created      || "(No Created Date)";
+        const updatedDate = event.updated      || "(No Updated Date)";
+
+        return `
+    <div style="min-width:250px">
+      <h3>${headline} (${event.event_type})</h3>
+      <p><strong>Description:</strong> ${description}</p>
+      <p><strong>Severity:</strong> ${severity}</p>
+      <p><strong>Status:</strong> ${status}</p>
+      <p><strong>Created:</strong> ${createdDate}</p>
+      <p><strong>Updated:</strong> ${updatedDate}</p>
+    </div>
+  `;
+    }
 </script>
+
 </body>
 </html>
