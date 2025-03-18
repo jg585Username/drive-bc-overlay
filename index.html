@@ -228,13 +228,23 @@
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // 2) Draw X axis labels: "Start of RoadName" at left, "End of RoadName" at right
+// Replace lines in drawElevationChart() that do the x-axis labeling:
         ctx.font = "12px Arial";
-        ctx.textAlign = "left";
-        ctx.fillText("Start of " + roadName, marginLeft, marginTop + chartHeight + 20);
 
+// Draw 'Start of' on the left
+        ctx.textAlign = "left";
+        ctx.fillText("Start of", marginLeft, marginTop + chartHeight + 15);
+
+// Draw the road name below 'Start of' on the left
+        ctx.fillText(roadName, marginLeft, marginTop + chartHeight + 30);
+
+// Draw 'End of' on the right
         ctx.textAlign = "right";
-        ctx.fillText("End of " + roadName, marginLeft + chartWidth, marginTop + chartHeight + 20);
+        ctx.fillText("End of", marginLeft + chartWidth, marginTop + chartHeight + 15);
+
+// Road name below 'End of' on the right
+        ctx.fillText(roadName, marginLeft + chartWidth, marginTop + chartHeight + 30);
+
 
         // 3) Y-axis ticks/labels (for simplicity, 3 or 4 ticks: min, mid, max)
         //    You can do more increments if you'd like
