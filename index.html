@@ -54,7 +54,7 @@
         loadRoadPolylines("westbay_cypress.geojson");
 
         // Load events (markers) from Open511
-        loadConstructionEvents();
+        loadEventsWithIcons();
     }
 
     // 4. Call initMap when the window loads
@@ -142,49 +142,71 @@
         });
     }
 
-    // 8. Fetch events from Open511 and place a construction icon where event_type=CONSTRUCTION
-    function loadConstructionEvents() {
-        // Query only active events, for example
+    // 8. Fetch events from Open511 and place different icons for each event_type
+    function loadEventsWithIcons() {
+        // Example: only ACTIVE events
         fetch("https://api.open511.gov.bc.ca/events?format=json&status=ACTIVE")
             .then(res => res.json())
             .then(data => {
                 if (data.events) {
                     data.events.forEach(event => {
-                        // Check if this event has event_type = CONSTRUCTION
-                        if (event.event_type === "CONSTRUCTION") {
-                            placeConstructionMarker(event);
-                        }
+                        placeEventMarkerIfRelevant(event);
                     });
                 }
             })
             .catch(err => console.error("Error fetching events:", err));
     }
 
-    // 9. Create a marker for a construction event, if it has Point geometry
-    function placeConstructionMarker(event) {
-        if (!event.geography) return; // no geometry
-        const geom = event.geography;
-
-        // We handle only simple Point geometry here
-        if (geom.type === "Point" && Array.isArray(geom.coordinates)) {
-            const coords = geom.coordinates; // [longitude, latitude]
-            const latLng = { lat: coords[1], lng: coords[0] };
-
-            // Add a marker with the construction icon
-            new google.maps.Marker({
-                position: latLng,
-                map: map,
-                icon: {
-                    url: "images/construction.png",  // points to your local image
-                    scaledSize: new google.maps.Size(32, 32)
-                },
-                title: event.headline || "Construction Event"
-            });
+    // 9. Place a marker for CONSTRUCTION, SPECIAL_EVENT, or INCIDENT (if we have point geometry)
+    function placeEventMarkerIfRelevant(event) {
+        // Only handle specific types
+        if (!["CONSTRUCTION", "SPECIAL_EVENT", "INCIDENT"].includes(event.event_type)) {
+            return; // skip other event types
         }
+
+        // We only handle point geometry here
+        if (!event.geography || event.geography.type !== "Point") {
+            return;
+        }
+
+        const coords = event.geography.coordinates; // [lon, lat]
+        if (!Array.isArray(coords) || coords.length < 2) {
+            return;
+        }
+
+        const position = { lat: coords[1], lng: coords[0] };
+        let iconUrl;
+
+        // Pick an icon based on the event type
+        switch (event.event_type) {
+            case "CONSTRUCTION":
+                iconUrl = "images/construction.png";
+                break;
+            case "SPECIAL_EVENT":
+                iconUrl = "images/special_event.png";
+                break;
+            case "INCIDENT":
+                iconUrl = "images/incident.png";
+                break;
+            default:
+                // If we get here, do nothing or pick a default icon
+                return;
+        }
+
+        new google.maps.Marker({
+            position,
+            map,
+            icon: {
+                url: iconUrl,
+                scaledSize: new google.maps.Size(32, 32)
+            },
+            title: event.headline || event.event_type || "Open511 Event"
+        });
     }
 </script>
 </body>
 </html>
+
 
 
 
