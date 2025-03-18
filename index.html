@@ -8,6 +8,7 @@
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCIzypwXHVm4201GULNbcXz3L1fMPEaouE"></script>
 </head>
 <body>
+
 <h1>BC Traffic Map</h1>
 <!-- The div that will hold the map -->
 <div id="map" style="width:100%;height:600px;"></div>
@@ -104,13 +105,18 @@
                     return f.properties && f.properties.highway;
                 });
 
-                // For each road feature, draw a Polyline
+                // For each road feature, draw a Polyline (and store road name/length)
                 roadFeatures.forEach(feature => {
                     const geom = feature.geometry;
+                    const roadName = feature.properties.name || "(Unnamed Road)";
+                    const roadLengthKm = calculateLineLength(geom);
+
                     if (geom.type === "LineString") {
-                        drawPolyline(geom.coordinates);
+                        drawPolyline(geom.coordinates, roadName, roadLengthKm);
                     } else if (geom.type === "MultiLineString") {
-                        geom.coordinates.forEach(line => drawPolyline(line));
+                        geom.coordinates.forEach(lineCoords => {
+                            drawPolyline(lineCoords, roadName, roadLengthKm);
+                        });
                     }
                 });
             })
@@ -118,8 +124,10 @@
     }
 
     // Helper function to create a Polyline on the map
-    function drawPolyline(coordsArray) {
+    // We also store the road name and length in the polyline object
+    function drawPolyline(coordsArray, roadName, roadLengthKm) {
         const path = coordsArray.map(c => ({ lat: c[1], lng: c[0] }));
+
         const polyline = new google.maps.Polyline({
             path,
             strokeColor: "#0000FF",
@@ -127,10 +135,34 @@
             map
         });
 
-        // Optional: highlight the road on click
-        polyline.addListener("click", () => {
+        // Attach metadata so we can display it later
+        polyline.roadName = roadName;
+        polyline.roadLength = roadLengthKm;
+
+        // On click, highlight the road and show an InfoWindow with name & length
+        polyline.addListener("click", (e) => {
+            // highlight in red
             polyline.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
+
+            // Show an InfoWindow near the click location
+            showRoadInfo(polyline, e.latLng);
         });
+    }
+
+    // Display an InfoWindow with the road's name and approximate length
+    function showRoadInfo(polyline, clickLocation) {
+        const contentString = `
+          <div style="min-width:150px;">
+            <p><strong>Road Name:</strong> ${polyline.roadName}</p>
+            <p><strong>Length (approx):</strong> ${polyline.roadLength.toFixed(2)} km</p>
+          </div>
+        `;
+
+        const infoWindow = new google.maps.InfoWindow({
+            content: contentString,
+            position: clickLocation
+        });
+        infoWindow.open({ map });
     }
 
     // 8. Fetch events from Open511 and place different icons for each event_type
@@ -202,10 +234,6 @@
 
     // 10. Construct an HTML string for the InfoWindow
     function buildInfoWindowContent(event) {
-        // Here, we pick "the most important things/categories":
-        // e.g. headline, description, severity, status, created, updated
-        // You can add more as needed (road name, schedule, etc.)
-
         const headline     = event.headline     || "(No Headline)";
         const description  = event.description  || "(No Description)";
         const severity     = event.severity     || "(No Severity)";
@@ -213,7 +241,6 @@
         const createdDate  = event.created      || "(No Created Date)";
         const updatedDate  = event.updated      || "(No Updated Date)";
 
-        // Wrap them in HTML
         return `
           <div style="min-width:250px">
             <h3>${headline} (${event.event_type})</h3>
@@ -225,11 +252,56 @@
           </div>
         `;
     }
+
+    /**
+     * Calculate approximate length (in kilometers) of a line or multiline using Haversine formula.
+     * geometry can be a GeoJSON geometry object (LineString or MultiLineString).
+     */
+    function calculateLineLength(geometry) {
+        let totalKm = 0;
+
+        if (geometry.type === "LineString") {
+            totalKm = computeCoordsDistance(geometry.coordinates);
+        } else if (geometry.type === "MultiLineString") {
+            geometry.coordinates.forEach(lineCoords => {
+                totalKm += computeCoordsDistance(lineCoords);
+            });
+        }
+        return totalKm;
+    }
+
+    /**
+     * Sum distances between consecutive points in coords array (array of [lon, lat]).
+     */
+    function computeCoordsDistance(coordsArray) {
+        let dist = 0;
+        for (let i = 0; i < coordsArray.length - 1; i++) {
+            const [lon1, lat1] = coordsArray[i];
+            const [lon2, lat2] = coordsArray[i + 1];
+            dist += haversineDistance(lat1, lon1, lat2, lon2);
+        }
+        return dist;
+    }
+
+    /**
+     * Haversine formula: returns distance in kilometers between two lat/lng points.
+     */
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371; // Earth's radius in km
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 +
+            Math.sin(dLon / 2) ** 2 * Math.cos(toRad(lat1)) * Math.cos(toRad(lat2));
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    function toRad(value) {
+        return (value * Math.PI) / 180;
+    }
 </script>
+
 </body>
 </html>
-
-
-
 
 
