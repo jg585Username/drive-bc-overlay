@@ -4,8 +4,17 @@
     <title>BC Traffic Map with Elevation & Additional OSM Tags</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="initial-scale=1.0" />
-    <!-- Replace YOUR_API_KEY with your actual API key that has Elevation API enabled -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCIzypwXHVm4201GULNbcXz3L1fMPEaouE"></script>
+    <script src="config.js"></script>
+    <script>
+        function loadGoogleMaps() {
+            const script = document.createElement("script");
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+        }
+        loadGoogleMaps();
+    </script>
 </head>
 <body>
 
