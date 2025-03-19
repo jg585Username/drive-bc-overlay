@@ -1,12 +1,11 @@
 # drive-bc-overlay
-
-This template should help get you started developing with Vue 3 in Vite.
+Collection of important road data for the Metro Vancouver Area from OpenBC, OSM, and Google Maps in one place
 
 ## Overspeed Query
 
+```overpassql
 [out:json][timeout:90];
-// Define the search area (Metro Vancouver)
-area[name="Vancouver"]->.searchArea;
+area[name="Vancouver"]->.searchArea; // or whatever area
 
 // Gather results
 (
@@ -29,24 +28,4 @@ area[name="Vancouver"]->.searchArea;
   nwr["highway"]["ele"](area.searchArea);                   // Elevation above sea level
 );
 
-// Print results
 out geom;
-
-
-## Project Setup
-
-```sh
-npm install
-```
-
-### Compile and Hot-Reload for Development
-
-```sh
-npm run dev
-```
-
-### Compile and Minify for Production
-
-```sh
-npm run build
-```
