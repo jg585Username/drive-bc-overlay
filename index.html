@@ -157,41 +157,56 @@
     // Create a Polyline and store relevant road data on it
     function drawPolyline(coordsArray, roadInfo) {
         const pathLatLng = coordsArray.map(c => ({ lat: c[1], lng: c[0] }));
-        const polyline = new google.maps.Polyline({
+
+        // 1) The visible line with a thin stroke
+        const polylineVisible = new google.maps.Polyline({
             path: pathLatLng,
             strokeColor: "#0000FF",
             strokeWeight: 2,
             map
         });
 
-        // Attach your data so we can display it later
-        polyline.roadName   = roadInfo.name;
-        polyline.roadLength = roadInfo.lengthKm;
-        polyline.pathLatLng = pathLatLng;
+        // 2) The "hit-detection" overlay with a thicker, invisible stroke
+        const polylineHitbox = new google.maps.Polyline({
+            path: pathLatLng,
+            strokeColor: "#0000FF",
+            strokeOpacity: 0.0,   // fully transparent
+            strokeWeight: 12,     // wide clickable area
+            map
+        });
+
+        // Attach your data to the VISIBLE line (so we can highlight & display info).
+        // If you prefer, store it on the hitbox or both – but we’ll keep it on the visible line.
+        polylineVisible.roadName   = roadInfo.name;
+        polylineVisible.roadLength = roadInfo.lengthKm;
+        polylineVisible.pathLatLng = pathLatLng;
 
         // OSM tags
-        polyline.cycleway     = roadInfo.cycleway;
-        polyline.sidewalk     = roadInfo.sidewalk;
-        polyline.surface      = roadInfo.surface;
-        polyline.maxspeed     = roadInfo.maxspeed;
-        polyline.lanes        = roadInfo.lanes;
-        polyline.width        = roadInfo.width;
-        polyline.oneway       = roadInfo.oneway;
-        polyline.access       = roadInfo.access;
-        polyline.motorVehicle = roadInfo.motorVehicle;
-        polyline.bicycle      = roadInfo.bicycle;
-        polyline.foot         = roadInfo.foot;
-        polyline.lit          = roadInfo.lit;
-        polyline.busway       = roadInfo.busway;
-        polyline.turn         = roadInfo.turn;
+        polylineVisible.cycleway     = roadInfo.cycleway;
+        polylineVisible.sidewalk     = roadInfo.sidewalk;
+        polylineVisible.surface      = roadInfo.surface;
+        polylineVisible.maxspeed     = roadInfo.maxspeed;
+        polylineVisible.lanes        = roadInfo.lanes;
+        polylineVisible.width        = roadInfo.width;
+        polylineVisible.oneway       = roadInfo.oneway;
+        polylineVisible.access       = roadInfo.access;
+        polylineVisible.motorVehicle = roadInfo.motorVehicle;
+        polylineVisible.bicycle      = roadInfo.bicycle;
+        polylineVisible.foot         = roadInfo.foot;
+        polylineVisible.lit          = roadInfo.lit;
+        polylineVisible.busway       = roadInfo.busway;
+        polylineVisible.turn         = roadInfo.turn;
 
-        // On click, highlight the road and show slope + OSM tags
-        polyline.addListener("click", (e) => {
-            // highlight in red
-            polyline.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
-            getElevationAndShowInfo(polyline, e.latLng);
+        // Attach the click listener to the HITBOX, so clicking anywhere
+        // in that invisible wide area will trigger the event.
+        polylineHitbox.addListener("click", (e) => {
+            // Highlight the visible line (red, thicker)
+            polylineVisible.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
+            // Then show slope & OSM tags
+            getElevationAndShowInfo(polylineVisible, e.latLng);
         });
     }
+
 
     // Query ElevationService for slope data
     function getElevationAndShowInfo(polyline, clickLocation) {
