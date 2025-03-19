@@ -3,7 +3,36 @@
 <head>
     <title>BC Traffic Map with Elevation & Additional OSM Tags</title>
     <meta charset="utf-8" />
-    <meta name="viewport" content="initial-scale=1.0" />
+    <!-- Make the map fill the entire viewport -->
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        /* Just to position your area dropdown for demonstration */
+        #areasDropdown {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 999;
+        }
+        h1#titleHeader {
+            position: absolute;
+            top: 10px;
+            left: 200px;
+            z-index: 999;
+            color: #fff;
+            background-color: rgba(0, 0, 0, 0.4);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+    </style>
+    <!-- Use your config.js or any method to provide the Google Maps API key -->
     <script src="config.js"></script>
     <script>
         function loadGoogleMaps() {
@@ -11,6 +40,7 @@
             script.src = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
             script.async = true;
             script.defer = true;
+            script.onload = () => initMap();
             document.head.appendChild(script);
         }
         loadGoogleMaps();
@@ -18,10 +48,12 @@
 </head>
 <body>
 
-<h1>BC Traffic Map</h1>
-<div id="map" style="width:100%; height:600px;"></div>
+<!-- Optional overlay title -->
+<h1 id="titleHeader">BC Traffic Map</h1>
+<!-- The map covers the full screen -->
+<div id="map"></div>
 
-<h1>Select an Area</h1>
+<!-- Dropdown for selecting an area -->
 <select id="areasDropdown">
     <option value="">-- Choose an Area --</option>
 </select>
@@ -29,6 +61,10 @@
 <script>
     let map;
     let elevationService;
+
+    // Track the currently selected polyline and its InfoWindow, so we can reset them
+    let currentlySelectedPolyline = null;
+    let currentlySelectedInfoWindow = null;
 
     // Predefined area centers for BC (from Open511)
     const areaCenters = {
@@ -45,6 +81,7 @@
         "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }
     };
 
+    // Called once Google Maps script loads
     function initMap() {
         map = new google.maps.Map(document.getElementById("map"), {
             center: { lat: 49.2827, lng: -123.1207 },
@@ -55,16 +92,14 @@
         elevationService = new google.maps.ElevationService();
 
         // Load multiple GeoJSON files
-        // Example:
         loadRoadPolylines("map.geojson");
         loadRoadPolylines("westbay_cypress.geojson");
         loadRoadPolylines("burnaby_bsss.geojson");  // The Overpass result with additional tags
         loadRoadPolylines("burnaby_highway.geojson");
+
         // Load events (Open511)
         loadEventsWithIcons();
     }
-
-    window.onload = initMap;
 
     // Fetch areas from Open511
     fetch("https://api.open511.gov.bc.ca/areas?format=json")
@@ -81,6 +116,7 @@
         })
         .catch(err => console.error("Error fetching areas:", err));
 
+    // When area is selected, recenter/zoom
     document.getElementById("areasDropdown").addEventListener("change", e => {
         const selectedId = e.target.value;
         const coords = areaCenters[selectedId];
@@ -90,6 +126,7 @@
         }
     });
 
+    // Load roads from local GeoJSON
     function loadRoadPolylines(file) {
         fetch(file)
             .then(r => r.json())
@@ -103,25 +140,25 @@
                     const roadName     = props.name || "(Unnamed Road)";
                     const roadLengthKm = calculateLineLength(geom);
 
-                    // Extract existing tags (with default "(N/A)")
-                    let cycleway      = props.cycleway      || "(N/A)";
-                    let sidewalk      = props.sidewalk      || "(N/A)";
-                    let surface       = props.surface       || "(N/A)";
-                    let maxspeed      = props.maxspeed      || "(N/A)";
-                    let lanes         = props.lanes         || "(N/A)";
-                    let width         = props.width         || "(N/A)";
-                    let oneway        = props.oneway        || "(N/A)";
-                    let access        = props.access        || "(N/A)";
-                    let motorVehicle  = props.motor_vehicle || "(N/A)";
-                    let bicycle       = props.bicycle       || "(N/A)";
-                    let foot          = props.foot          || "(N/A)";
-                    let lit           = props.lit           || "(N/A)";
-                    let busway        = props.busway        || "(N/A)";
-                    let turn          = props.turn          || "(N/A)";
+                    // Some tags with default "(N/A)"
+                    let cycleway     = props.cycleway      || "(N/A)";
+                    let sidewalk     = props.sidewalk      || "(N/A)";
+                    let surface      = props.surface       || "(N/A)";
+                    let maxspeed     = props.maxspeed      || "(N/A)";
+                    let lanes        = props.lanes         || "(N/A)";
+                    let width        = props.width         || "(N/A)";
+                    let oneway       = props.oneway        || "(N/A)";
+                    let access       = props.access        || "(N/A)";
+                    let motorVehicle = props.motor_vehicle || "(N/A)";
+                    let bicycle      = props.bicycle       || "(N/A)";
+                    let foot         = props.foot          || "(N/A)";
+                    let lit          = props.lit           || "(N/A)";
+                    let busway       = props.busway        || "(N/A)";
+                    let turn         = props.turn          || "(N/A)";
 
-                    // 1) Override logic:
-                    // If surface is asphalt or paved, and maxspeed, access, motorVehicle are "(N/A)",
-                    // we assume default: maxspeed=50, access=Public, motor_vehicle=Designated
+                    // Override logic:
+                    // If surface is "asphalt" or "paved", and certain tags are "(N/A)",
+                    // assume maxspeed=50, access=Public, motor_vehicle=Designated.
                     if ((surface === "asphalt" || surface === "paved")) {
                         if (maxspeed === "(N/A)") {
                             maxspeed = "50 km/h";
@@ -134,7 +171,6 @@
                         }
                     }
 
-                    // 2) Pass these final values to drawPolyline
                     if (geom.type === "LineString") {
                         drawPolyline(geom.coordinates, {
                             name:         roadName,
@@ -167,12 +203,11 @@
             .catch(err => console.error("Error loading", file, err));
     }
 
-
-    // Create a Polyline and store relevant road data on it
+    // Create a thin visible Polyline + an invisible "hitbox" overlay
     function drawPolyline(coordsArray, roadInfo) {
         const pathLatLng = coordsArray.map(c => ({ lat: c[1], lng: c[0] }));
 
-        // 1) The visible line with a thin stroke
+        // The thin visible line
         const polylineVisible = new google.maps.Polyline({
             path: pathLatLng,
             strokeColor: "#0000FF",
@@ -180,22 +215,19 @@
             map
         });
 
-        // 2) The "hit-detection" overlay with a thicker, invisible stroke
+        // The invisible "hitbox" line for easier clicks
         const polylineHitbox = new google.maps.Polyline({
             path: pathLatLng,
             strokeColor: "#0000FF",
-            strokeOpacity: 0.0,   // fully transparent
-            strokeWeight: 12,     // wide clickable area
+            strokeOpacity: 0.0,
+            strokeWeight: 12,
             map
         });
 
-        // Attach your data to the VISIBLE line (so we can highlight & display info).
-        // If you prefer, store it on the hitbox or both – but we’ll keep it on the visible line.
+        // Store data on the visible line
         polylineVisible.roadName   = roadInfo.name;
         polylineVisible.roadLength = roadInfo.lengthKm;
         polylineVisible.pathLatLng = pathLatLng;
-
-        // OSM tags
         polylineVisible.cycleway     = roadInfo.cycleway;
         polylineVisible.sidewalk     = roadInfo.sidewalk;
         polylineVisible.surface      = roadInfo.surface;
@@ -211,18 +243,37 @@
         polylineVisible.busway       = roadInfo.busway;
         polylineVisible.turn         = roadInfo.turn;
 
-        // Attach the click listener to the HITBOX, so clicking anywhere
-        // in that invisible wide area will trigger the event.
+        // Hitbox click
         polylineHitbox.addListener("click", (e) => {
-            // Highlight the visible line (red, thicker)
-            polylineVisible.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
-            // Then show slope & OSM tags
-            getElevationAndShowInfo(polylineVisible, e.latLng);
+            // 1) Unselect the previously clicked polyline if any
+            if (currentlySelectedPolyline) {
+                // Revert style
+                currentlySelectedPolyline.setOptions({
+                    strokeColor: "#0000FF",
+                    strokeWeight: 2
+                });
+            }
+            // Close previous info window if any
+            if (currentlySelectedInfoWindow) {
+                currentlySelectedInfoWindow.close();
+            }
+
+            // 2) Highlight the newly clicked line
+            polylineVisible.setOptions({
+                strokeColor: "#FF0000",
+                strokeWeight: 4
+            });
+
+            // 3) Show slope + OSM tags, get the new info window
+            const newInfoWindow = getElevationAndShowInfo(polylineVisible, e.latLng);
+
+            // 4) Update references
+            currentlySelectedPolyline = polylineVisible;
+            currentlySelectedInfoWindow = newInfoWindow;
         });
     }
 
-
-    // Query ElevationService for slope data
+    // ElevationService for slope data
     function getElevationAndShowInfo(polyline, clickLocation) {
         const pathRequest = {
             path: polyline.pathLatLng,
@@ -233,12 +284,15 @@
                 const elevStart = results[0].elevation;
                 const elevEnd   = results[results.length - 1].elevation;
                 const slopePercent = computeSlopePercent(polyline.pathLatLng, elevStart, elevEnd);
-
                 const elevations = results.map(r => r.elevation);
-                showRoadInfoWithElevation(polyline, clickLocation, elevations, slopePercent);
+
+                // Return the infoWindow from showRoadInfoWithElevation
+                const infoWindow = showRoadInfoWithElevation(polyline, clickLocation, elevations, slopePercent);
+                return infoWindow;
             } else {
                 console.warn("ElevationService failed:", status);
-                showRoadInfoWithElevation(polyline, clickLocation, null, null);
+                const infoWindow = showRoadInfoWithElevation(polyline, clickLocation, null, null);
+                return infoWindow;
             }
         });
     }
@@ -253,7 +307,7 @@
         return (elevChange / distM) * 100;
     }
 
-    // Build and display an InfoWindow with road info, OSM tags, slope, chart
+    // Build and display an InfoWindow, then return it so we can track it globally
     function showRoadInfoWithElevation(polyline, clickLocation, elevationArray, slopePercent) {
         // Unique ID so multiple charts don't clash
         let uniqueId = "elevChart_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
@@ -326,6 +380,8 @@
                 drawElevationChart(uniqueId, elevationArray, name);
             });
         }
+
+        return infoWindow;
     }
 
     // Basic line chart with axes, labeling "Start of X" / "End of X"
@@ -407,7 +463,7 @@
         ctx.stroke();
     }
 
-    // Calculate approximate length of geometry in km
+    // Utility: approximate length of geometry in km
     function calculateLineLength(geometry) {
         let totalKm = 0;
         if (geometry.type === "LineString") {
@@ -462,6 +518,7 @@
             .catch(err => console.error("Error fetching events:", err));
     }
 
+    // Create markers for events
     function placeEventMarker(event) {
         if (!event.geography || event.geography.type !== "Point") return;
         const coords = event.geography.coordinates;
@@ -515,5 +572,6 @@
 
 </body>
 </html>
+
 
 
