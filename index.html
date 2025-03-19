@@ -156,6 +156,7 @@
 
     // Show InfoWindow with slope + custom chart
     function showRoadInfoWithElevation(polyline, clickLocation, elevationArray, slopePercent) {
+        let uniqueId = "elevChart_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
         let slopeText = slopePercent !== null ? slopePercent.toFixed(2) + "%" : "(No data)";
 
         // We'll pass the roadName so we can label the chart ends
@@ -168,10 +169,9 @@
 
         if (elevationArray) {
             content += `
-      <p><strong>Elevation Profile:</strong></p>
-      <!-- We'll label the left and right ends as Start/End for this road -->
-      <canvas id="elevChart" width="300" height="150" style="border:1px solid #ccc;"></canvas>
-    `;
+    <p><strong>Elevation Profile:</strong></p>
+    <canvas id="${uniqueId}" width="300" height="150" style="border:1px solid #ccc;"></canvas>
+  `;
         }
 
         content += `</div>`;
@@ -182,10 +182,9 @@
         });
         infoWindow.open({ map });
 
-        // Once DOM is ready, draw chart with axis
         if (elevationArray) {
             google.maps.event.addListenerOnce(infoWindow, "domready", () => {
-                drawElevationChart("elevChart", elevationArray, polyline.roadName);
+                drawElevationChart(uniqueId, elevationArray, polyline.roadName);
             });
         }
     }
