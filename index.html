@@ -90,62 +90,75 @@
         }
     });
 
-    // Load road data from a local GeoJSON file
     function loadRoadPolylines(file) {
         fetch(file)
             .then(r => r.json())
             .then(geo => {
-                // Filter for features that have a 'highway' tag, if needed
                 const roadFeatures = geo.features.filter(f => f.properties && f.properties.highway);
 
                 roadFeatures.forEach(feature => {
                     const props = feature.properties || {};
                     const geom  = feature.geometry;
 
-                    // Basic fields
                     const roadName     = props.name || "(Unnamed Road)";
                     const roadLengthKm = calculateLineLength(geom);
 
-                    // Additional OSM tags (existing + new):
-                    const cycleway     = props.cycleway      || "(N/A)";
-                    const sidewalk     = props.sidewalk      || "(N/A)";
-                    const surface      = props.surface       || "(N/A)";
-                    const maxspeed     = props.maxspeed      || "(N/A)";
-                    const lanes        = props.lanes         || "(N/A)";
-                    const width        = props.width         || "(N/A)";
-                    const oneway       = props.oneway        || "(N/A)";
-                    const access       = props.access        || "(N/A)";
-                    const motorVehicle = props.motor_vehicle || "(N/A)";
-                    const bicycle      = props.bicycle       || "(N/A)";
-                    const foot         = props.foot          || "(N/A)";
-                    const lit          = props.lit           || "(N/A)";
-                    const busway       = props.busway        || "(N/A)";
-                    const turn         = props.turn          || "(N/A)";
+                    // Extract existing tags (with default "(N/A)")
+                    let cycleway      = props.cycleway      || "(N/A)";
+                    let sidewalk      = props.sidewalk      || "(N/A)";
+                    let surface       = props.surface       || "(N/A)";
+                    let maxspeed      = props.maxspeed      || "(N/A)";
+                    let lanes         = props.lanes         || "(N/A)";
+                    let width         = props.width         || "(N/A)";
+                    let oneway        = props.oneway        || "(N/A)";
+                    let access        = props.access        || "(N/A)";
+                    let motorVehicle  = props.motor_vehicle || "(N/A)";
+                    let bicycle       = props.bicycle       || "(N/A)";
+                    let foot          = props.foot          || "(N/A)";
+                    let lit           = props.lit           || "(N/A)";
+                    let busway        = props.busway        || "(N/A)";
+                    let turn          = props.turn          || "(N/A)";
 
+                    // 1) Override logic:
+                    // If surface is asphalt or paved, and maxspeed, access, motorVehicle are "(N/A)",
+                    // we assume default: maxspeed=50, access=Public, motor_vehicle=Designated
+                    if ((surface === "asphalt" || surface === "paved")) {
+                        if (maxspeed === "(N/A)") {
+                            maxspeed = "50 km/h";
+                        }
+                        if (access === "(N/A)") {
+                            access = "Public";
+                        }
+                        if (motorVehicle === "(N/A)") {
+                            motorVehicle = "Designated";
+                        }
+                    }
+
+                    // 2) Pass these final values to drawPolyline
                     if (geom.type === "LineString") {
                         drawPolyline(geom.coordinates, {
-                            name:       roadName,
-                            lengthKm:   roadLengthKm,
-                            cycleway,   sidewalk,
-                            surface,    maxspeed,
-                            lanes,      width,
-                            oneway,     access,
+                            name:         roadName,
+                            lengthKm:     roadLengthKm,
+                            cycleway,     sidewalk,
+                            surface,      maxspeed,
+                            lanes,        width,
+                            oneway,       access,
                             motorVehicle, bicycle,
-                            foot,       lit,
-                            busway,     turn
+                            foot,         lit,
+                            busway,       turn
                         });
                     } else if (geom.type === "MultiLineString") {
                         geom.coordinates.forEach(line => {
                             drawPolyline(line, {
-                                name:       roadName,
-                                lengthKm:   roadLengthKm,
-                                cycleway,   sidewalk,
-                                surface,    maxspeed,
-                                lanes,      width,
-                                oneway,     access,
+                                name:         roadName,
+                                lengthKm:     roadLengthKm,
+                                cycleway,     sidewalk,
+                                surface,      maxspeed,
+                                lanes,        width,
+                                oneway,       access,
                                 motorVehicle, bicycle,
-                                foot,       lit,
-                                busway,     turn
+                                foot,         lit,
+                                busway,       turn
                             });
                         });
                     }
@@ -153,6 +166,7 @@
             })
             .catch(err => console.error("Error loading", file, err));
     }
+
 
     // Create a Polyline and store relevant road data on it
     function drawPolyline(coordsArray, roadInfo) {
@@ -277,9 +291,9 @@
             <p><strong>Cycleway:</strong> ${cycleway}</p>
             <p><strong>Sidewalk:</strong> ${sidewalk}</p>
             <p><strong>Surface:</strong> ${surface}</p>
-            <p><strong>Max Speed:</strong> ${maxspeed} km/h</p>
+            <p><strong>Max Speed:</strong> ${maxspeed}</p>
             <p><strong>Lanes:</strong> ${lanes}</p>
-            <p><strong>Width:</strong> ${width}</p>
+            <p><strong>Width:</strong> ${width} m</p>
             <p><strong>Oneway:</strong> ${oneway}</p>
             <p><strong>Access:</strong> ${access}</p>
             <p><strong>Motor Vehicle:</strong> ${motorVehicle}</p>
