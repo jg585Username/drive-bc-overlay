@@ -21,7 +21,7 @@
     let map;
     let elevationService;
 
-    // Predefined area centers for BC
+    // Predefined area centers for BC (from Open511)
     const areaCenters = {
         "drivebc.ca/1":  { lat: 49.2058, lng: -123.0233 },
         "drivebc.ca/2":  { lat: 48.4611, lng: -123.3787 },
@@ -42,14 +42,18 @@
             zoom: 6
         });
 
-        // Elevation service
+        // Elevation service for slope calculations
         elevationService = new google.maps.ElevationService();
 
-        // Load roads
+        // Load multiple GeoJSON files
+        // 1) Some roads
         loadRoadPolylines("map.geojson");
+        // 2) More roads
         loadRoadPolylines("westbay_cypress.geojson");
+        // 3) OSM roads from Overpass, with extra tags (cycleway, sidewalk, etc.)
+        loadRoadPolylines("burnaby_bsss.geojson");
 
-        // Load events
+        // Load events (Open511)
         loadEventsWithIcons();
     }
 
@@ -79,22 +83,47 @@
         }
     });
 
-    // Load road data from local GeoJSON
+    // Load road data from a local GeoJSON file
     function loadRoadPolylines(file) {
         fetch(file)
             .then(r => r.json())
             .then(geo => {
+                // Filter for features that have a 'highway' tag, if needed
                 const roadFeatures = geo.features.filter(f => f.properties && f.properties.highway);
+
                 roadFeatures.forEach(feature => {
-                    const geom = feature.geometry;
-                    const name = feature.properties.name || "(Unnamed Road)";
-                    const lengthKm = calculateLineLength(geom);
+                    const props = feature.properties || {};
+                    const geom  = feature.geometry;
+
+                    // Basic fields
+                    const roadName     = props.name || "(Unnamed Road)";
+                    const roadLengthKm = calculateLineLength(geom);
+
+                    // Additional OSM tags (if present)
+                    const cycleway = props.cycleway  || "None";
+                    const sidewalk = props.sidewalk  || "Unknown";
+                    const surface  = props.surface   || "N/A";
+                    const maxspeed = props.maxspeed  || "N/A";
 
                     if (geom.type === "LineString") {
-                        drawPolyline(geom.coordinates, name, lengthKm);
+                        drawPolyline(geom.coordinates, {
+                            name: roadName,
+                            lengthKm: roadLengthKm,
+                            cycleway,
+                            sidewalk,
+                            surface,
+                            maxspeed
+                        });
                     } else if (geom.type === "MultiLineString") {
                         geom.coordinates.forEach(line => {
-                            drawPolyline(line, name, lengthKm);
+                            drawPolyline(line, {
+                                name: roadName,
+                                lengthKm: roadLengthKm,
+                                cycleway,
+                                sidewalk,
+                                surface,
+                                maxspeed
+                            });
                         });
                     }
                 });
@@ -102,7 +131,8 @@
             .catch(err => console.error("Error loading", file, err));
     }
 
-    function drawPolyline(coordsArray, roadName, roadLengthKm) {
+    // Create a Polyline and store relevant road data on it
+    function drawPolyline(coordsArray, roadInfo) {
         const pathLatLng = coordsArray.map(c => ({ lat: c[1], lng: c[0] }));
         const polyline = new google.maps.Polyline({
             path: pathLatLng,
@@ -111,19 +141,24 @@
             map
         });
 
-        polyline.roadName = roadName;
-        polyline.roadLength = roadLengthKm;
+        // Attach your data so we can display it later
+        polyline.roadName   = roadInfo.name;
+        polyline.roadLength = roadInfo.lengthKm;
         polyline.pathLatLng = pathLatLng;
+        polyline.cycleway   = roadInfo.cycleway;
+        polyline.sidewalk   = roadInfo.sidewalk;
+        polyline.surface    = roadInfo.surface;
+        polyline.maxspeed   = roadInfo.maxspeed;
 
+        // On click, highlight the road and show slope + OSM tags
         polyline.addListener("click", (e) => {
-            // highlight
+            // highlight in red
             polyline.setOptions({ strokeColor: "#FF0000", strokeWeight: 4 });
-            // fetch elevation
             getElevationAndShowInfo(polyline, e.latLng);
         });
     }
 
-    // Use ElevationService along path
+    // Query ElevationService for slope data
     function getElevationAndShowInfo(polyline, clickLocation) {
         const pathRequest = {
             path: polyline.pathLatLng,
@@ -144,34 +179,53 @@
         });
     }
 
-    // slope = (end_elev - start_elev)/(distance in m) *100%
+    // slope = (end_elev - start_elev)/(distance in m)*100%
     function computeSlopePercent(pathLatLng, elevStart, elevEnd) {
         const latLng1 = pathLatLng[0];
         const latLng2 = pathLatLng[pathLatLng.length - 1];
-        const distKm = haversineDistance(latLng1.lat, latLng1.lng, latLng2.lat, latLng2.lng);
-        const distM = distKm * 1000;
+        const distKm  = haversineDistance(latLng1.lat, latLng1.lng, latLng2.lat, latLng2.lng);
+        const distM   = distKm * 1000;
         const elevChange = elevEnd - elevStart;
         return (elevChange / distM) * 100;
     }
 
-    // Show InfoWindow with slope + custom chart
+    // Build and display an InfoWindow with road info, OSM tags, slope, chart
     function showRoadInfoWithElevation(polyline, clickLocation, elevationArray, slopePercent) {
+        // Unique ID so multiple charts don't clash
         let uniqueId = "elevChart_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
-        let slopeText = slopePercent !== null ? slopePercent.toFixed(2) + "%" : "(No data)";
 
-        // We'll pass the roadName so we can label the chart ends
+        let slopeText = slopePercent !== null
+            ? slopePercent.toFixed(2) + "%"
+            : "(No data)";
+
+        const name     = polyline.roadName;
+        const lengthKm = polyline.roadLength.toFixed(2);
+
+        // Additional OSM tags
+        const cycleway = polyline.cycleway;
+        const sidewalk = polyline.sidewalk;
+        const surface  = polyline.surface;
+        const maxspeed = polyline.maxspeed;
+
         let content = `
-    <div style="min-width:220px;">
-      <p><strong>Road Name:</strong> ${polyline.roadName}</p>
-      <p><strong>Length (approx):</strong> ${polyline.roadLength.toFixed(2)} km</p>
-      <p><strong>Slope (start-end):</strong> ${slopeText}</p>
-  `;
+          <div style="min-width:220px;">
+            <p><strong>Road Name:</strong> ${name}</p>
+            <p><strong>Length (approx):</strong> ${lengthKm} km</p>
+            <p><strong>Slope (start-end):</strong> ${slopeText}</p>
 
+            <hr/>
+            <p><strong>Cycleway:</strong> ${cycleway}</p>
+            <p><strong>Sidewalk:</strong> ${sidewalk}</p>
+            <p><strong>Surface:</strong> ${surface}</p>
+            <p><strong>Max Speed:</strong> ${maxspeed} km/h</p>
+        `;
+
+        // If we have elevation data, show a chart
         if (elevationArray) {
             content += `
-    <p><strong>Elevation Profile:</strong></p>
-    <canvas id="${uniqueId}" width="300" height="150" style="border:1px solid #ccc;"></canvas>
-  `;
+              <p><strong>Elevation Profile:</strong></p>
+              <canvas id="${uniqueId}" width="300" height="150" style="border:1px solid #ccc;"></canvas>
+            `;
         }
 
         content += `</div>`;
@@ -182,14 +236,15 @@
         });
         infoWindow.open({ map });
 
+        // If we have elevation data, draw the chart once the DOM is ready
         if (elevationArray) {
             google.maps.event.addListenerOnce(infoWindow, "domready", () => {
-                drawElevationChart(uniqueId, elevationArray, polyline.roadName);
+                drawElevationChart(uniqueId, elevationArray, name);
             });
         }
     }
 
-    // A simple chart with axis + "Start of X" / "End of X"
+    // Basic line chart with axes, labeling "Start of X" / "End of X"
     function drawElevationChart(canvasId, elevations, roadName) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
@@ -213,7 +268,6 @@
         const maxElev = Math.max(...elevations);
         const range   = (maxElev - minElev) || 1;
 
-        // Clear the canvas
         ctx.clearRect(0, 0, width, height);
 
         // 1) Draw axes
@@ -227,26 +281,17 @@
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-// Replace lines in drawElevationChart() that do the x-axis labeling:
+        // 2) X-axis labels
         ctx.font = "12px Arial";
-
-// Draw 'Start of' on the left
         ctx.textAlign = "left";
         ctx.fillText("Start of", marginLeft, marginTop + chartHeight + 15);
-
-// Draw the road name below 'Start of' on the left
         ctx.fillText(roadName, marginLeft, marginTop + chartHeight + 30);
 
-// Draw 'End of' on the right
         ctx.textAlign = "right";
         ctx.fillText("End of", marginLeft + chartWidth, marginTop + chartHeight + 15);
-
-// Road name below 'End of' on the right
         ctx.fillText(roadName, marginLeft + chartWidth, marginTop + chartHeight + 30);
 
-
-        // 3) Y-axis ticks/labels (for simplicity, 3 or 4 ticks: min, mid, max)
-        //    You can do more increments if you'd like
+        // 3) Y-axis ticks (min, mid, max)
         const numTicks = 3;
         for (let i = 0; i <= numTicks; i++) {
             const value = minElev + (range * i / numTicks);
@@ -258,17 +303,16 @@
             ctx.stroke();
 
             ctx.textAlign = "right";
-            ctx.fillText(value.toFixed(0)+"m", marginLeft - 8, y+3); // label
+            ctx.fillText(value.toFixed(0) + "m", marginLeft - 8, y + 3);
         }
 
         // 4) Plot the line
         ctx.beginPath();
         elevations.forEach((elev, i) => {
-            // scale to chart area
-            const xRatio = i/(elevations.length-1);
+            const xRatio = i / (elevations.length - 1);
             const x = marginLeft + (xRatio * chartWidth);
 
-            const elevNorm = (elev - minElev)/range;
+            const elevNorm = (elev - minElev) / range;
             const y = marginTop + chartHeight - (elevNorm * chartHeight);
 
             if (i === 0) ctx.moveTo(x, y);
@@ -279,7 +323,7 @@
         ctx.stroke();
     }
 
-    // Compute approximate length of the geometry in km
+    // Calculate approximate length of geometry in km
     function calculateLineLength(geometry) {
         let totalKm = 0;
         if (geometry.type === "LineString") {
@@ -292,29 +336,31 @@
         return totalKm;
     }
 
-    // Sum distances for consecutive coords
+    // Sum distances for consecutive coordinates
     function computeCoordsDistance(coords) {
         let dist = 0;
-        for (let i=0; i<coords.length-1; i++) {
+        for (let i = 0; i < coords.length - 1; i++) {
             const [lon1, lat1] = coords[i];
-            const [lon2, lat2] = coords[i+1];
+            const [lon2, lat2] = coords[i + 1];
             dist += haversineDistance(lat1, lon1, lat2, lon2);
         }
         return dist;
     }
 
-    // Haversine for lat/lon in degrees, returns km
+    // Haversine formula for lat/lon in degrees, returns km
     function haversineDistance(lat1, lon1, lat2, lon2) {
         const R = 6371; // Earth radius in km
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
         const a = Math.sin(dLat/2)**2
-            + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R*c;
+            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
     }
 
-    function toRad(val){ return (val * Math.PI)/180; }
+    function toRad(val){
+        return (val * Math.PI) / 180;
+    }
 
     // Load events from Open511, place markers for 3 event types
     function loadEventsWithIcons() {
@@ -335,7 +381,7 @@
     function placeEventMarker(event) {
         if (!event.geography || event.geography.type !== "Point") return;
         const coords = event.geography.coordinates;
-        if (!Array.isArray(coords) || coords.length<2) return;
+        if (!Array.isArray(coords) || coords.length < 2) return;
 
         const position = { lat: coords[1], lng: coords[0] };
 
@@ -371,17 +417,18 @@
         const updatedDate = event.updated      || "(No Updated Date)";
 
         return `
-    <div style="min-width:250px">
-      <h3>${headline} (${event.event_type})</h3>
-      <p><strong>Description:</strong> ${description}</p>
-      <p><strong>Severity:</strong> ${severity}</p>
-      <p><strong>Status:</strong> ${status}</p>
-      <p><strong>Created:</strong> ${createdDate}</p>
-      <p><strong>Updated:</strong> ${updatedDate}</p>
-    </div>
-  `;
+          <div style="min-width:250px">
+            <h3>${headline} (${event.event_type})</h3>
+            <p><strong>Description:</strong> ${description}</p>
+            <p><strong>Severity:</strong> ${severity}</p>
+            <p><strong>Status:</strong> ${status}</p>
+            <p><strong>Created:</strong> ${createdDate}</p>
+            <p><strong>Updated:</strong> ${updatedDate}</p>
+          </div>
+        `;
     }
 </script>
 
 </body>
 </html>
+
