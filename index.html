@@ -161,7 +161,7 @@
                     // assume maxspeed=50, access=Public, motor_vehicle=Designated.
                     if ((surface === "asphalt" || surface === "paved")) {
                         if (maxspeed === "(N/A)") {
-                            maxspeed = "50 km/h";
+                            maxspeed = "50";
                         }
                         if (access === "(N/A)") {
                             access = "Public";
@@ -345,7 +345,7 @@
             <p><strong>Cycleway:</strong> ${cycleway}</p>
             <p><strong>Sidewalk:</strong> ${sidewalk}</p>
             <p><strong>Surface:</strong> ${surface}</p>
-            <p><strong>Max Speed:</strong> ${maxspeed}</p>
+            <p><strong>Max Speed:</strong> ${maxspeed} km/h</p>
             <p><strong>Lanes:</strong> ${lanes}</p>
             <p><strong>Width:</strong> ${width} m</p>
             <p><strong>Oneway:</strong> ${oneway}</p>
@@ -569,9 +569,5 @@
         `;
     }
 </script>
-
 </body>
 </html>
-
-
-
