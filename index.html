@@ -39,16 +39,51 @@
             font-size: 14px;
             padding: 5px;
         }
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5); /* Translucent dark background */
+            z-index: 1000; /* Make sure it's above the map */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            animation: spin 2s linear infinite;
+            margin-right: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-
+<div id="loadingOverlay">
+    <div class="spinner"></div>
+    <div>Loading map data...</div>
+</div>
 <div id="map"></div>
 <select id="areasDropdown">
     <option value="">-- Choose an Area --</option>
 </select>
 
 <script>
+    let loadingOverlay;
+    let polylineLoadingCounter = 0;
+    let totalPolylineFiles = 4; // The number of GeoJSON files you're loading
     // Keep references for polylines & infoWindows so we can manage them
     let map;
     let elevationService;
@@ -85,6 +120,7 @@
     };
 
     function initMap() {
+        loadingOverlay = document.getElementById("loadingOverlay");
         map = new google.maps.Map(document.getElementById("map"), {
             center: { lat: 49.2827, lng: -123.1207 },
             zoom: 6
@@ -95,6 +131,7 @@
         map.addListener("zoom_changed", () => {
             renderPolylinesForZoom();
         });
+        showLoadingOverlay();
 
         // Load multiple GeoJSON files
         loadRoadPolylines("map.geojson");
@@ -199,17 +236,33 @@
                     }
                 });
 
-                // Now that we've loaded more features, re-render according to the current zoom
+                polylineLoadingCounter++;
+                if (polylineLoadingCounter >= totalPolylineFiles) {
+                    // All files loaded, hide overlay
+                    hideLoadingOverlay();
+                }
                 renderPolylinesForZoom();
             })
-            .catch(err => console.error("Error loading", file, err));
+            .catch(err => {
+                console.error("Error loading", file, err);
+                polylineLoadingCounter++;
+                if (polylineLoadingCounter >= totalPolylineFiles) {
+                    hideLoadingOverlay();
+                }
+            });
     }
 
-    /**
-     * Based on the current zoom, decide which roads to show:
-     *  - If zoom < ZOOM_THRESHOLD => show only "major" roads
-     *  - Else => show all roads
-     */
+    function showLoadingOverlay() {
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+        }
+    }
+
+    function hideLoadingOverlay() {
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
+    }
     function renderPolylinesForZoom() {
         // 1) Clear currently drawn polylines
         clearDrawnPolylines();
