@@ -1,7 +1,7 @@
 # drive-bc-overlay
 Collection of important road data for the Metro Vancouver Area from OpenBC, OSM, and Google Maps in one place
 
-## Overspeed Query
+## Overpass Query
 
 ```overpassql
 [out:json][timeout:90];
