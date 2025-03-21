@@ -30,6 +30,7 @@
             width: 100%;
             height: 100vh; /* fill the viewport height */
         }
+
         /* Position the dropdown on top of the map */
         #areasDropdown {
             position: absolute;
@@ -39,6 +40,7 @@
             font-size: 14px;
             padding: 5px;
         }
+
         #loadingOverlay {
             position: fixed;
             top: 0;
@@ -84,6 +86,7 @@
     let loadingOverlay;
     let polylineLoadingCounter = 0;
     let totalPolylineFiles = 4; // The number of GeoJSON files you're loading
+
     // Keep references for polylines & infoWindows so we can manage them
     let map;
     let elevationService;
@@ -119,6 +122,25 @@
         "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }
     };
 
+    // 1) interpretHighwayType helper
+    function interpretHighwayType(hwy) {
+        switch (hwy) {
+            case "motorway":      return "Freeways";
+            case "primary":       return "Major roads";
+            case "secondary":     return "Secondary roads";
+            case "tertiary":      return "Tertiary roads";
+            case "residential":   return "Neighborhood streets";
+            case "service":       return "Access roads / alleys / parking lots";
+            case "unclassified":  return "Unclassified roads";
+            case "track":
+            case "path":
+            case "footway":
+            case "cycleway":      return `Path or cycleway (${hwy})`;
+            // default fallback:
+            default:             return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
+        }
+    }
+
     function initMap() {
         loadingOverlay = document.getElementById("loadingOverlay");
         map = new google.maps.Map(document.getElementById("map"), {
@@ -127,10 +149,10 @@
         });
         elevationService = new google.maps.ElevationService();
 
-        // Listen for zoom changes to re-render polylines
         map.addListener("zoom_changed", () => {
             renderPolylinesForZoom();
         });
+
         showLoadingOverlay();
 
         // Load multiple GeoJSON files
@@ -157,7 +179,6 @@
             })
             .catch(err => console.error("Error fetching areas:", err));
 
-        // On area dropdown change
         document.getElementById("areasDropdown").addEventListener("change", e => {
             const selectedId = e.target.value;
             const coords = areaCenters[selectedId];
@@ -168,16 +189,10 @@
         });
     }
 
-    /**
-     * 1) We load each GeoJSON in memory (allRoadFeatures),
-     *    but do NOT immediately draw everything.
-     * 2) Once loaded, we call renderPolylinesForZoom() to show/hide roads.
-     */
     function loadRoadPolylines(file) {
         fetch(file)
             .then(r => r.json())
             .then(geo => {
-                // Filter for features that have a 'highway' tag
                 const roadFeatures = geo.features.filter(f => f.properties && f.properties.highway);
 
                 roadFeatures.forEach(feature => {
@@ -216,29 +231,41 @@
                         }
                     }
 
+                    // We'll store the raw highway so we can interpret it
+                    const highwayVal = props.highway || "(N/A)";
+
                     // We'll push each segment (LineString or part of MultiLineString) as a "road object"
                     if (geom.type === "LineString") {
-                        allRoadFeatures.push({ props, roadName, roadLengthKm,
+                        allRoadFeatures.push({
+                            props,
+                            highwayVal,
+                            roadName,
+                            roadLengthKm,
                             cycleway, sidewalk, surface, maxspeed,
                             lanes, width, oneway, access,
                             motorVehicle, bicycle, foot, lit,
                             busway, turn,
-                            coordinates: geom.coordinates });
+                            coordinates: geom.coordinates
+                        });
                     } else if (geom.type === "MultiLineString") {
                         geom.coordinates.forEach(lineCoords => {
-                            allRoadFeatures.push({ props, roadName, roadLengthKm,
+                            allRoadFeatures.push({
+                                props,
+                                highwayVal,
+                                roadName,
+                                roadLengthKm,
                                 cycleway, sidewalk, surface, maxspeed,
                                 lanes, width, oneway, access,
                                 motorVehicle, bicycle, foot, lit,
                                 busway, turn,
-                                coordinates: lineCoords });
+                                coordinates: lineCoords
+                            });
                         });
                     }
                 });
 
                 polylineLoadingCounter++;
                 if (polylineLoadingCounter >= totalPolylineFiles) {
-                    // All files loaded, hide overlay
                     hideLoadingOverlay();
                 }
                 renderPolylinesForZoom();
@@ -263,27 +290,23 @@
             loadingOverlay.style.display = 'none';
         }
     }
+
     function renderPolylinesForZoom() {
-        // 1) Clear currently drawn polylines
         clearDrawnPolylines();
 
         const currentZoom = map.getZoom();
 
         allRoadFeatures.forEach(road => {
-            const hwyType = road.props.highway; // e.g. "residential" or "motorway"
+            const hwyType = road.props.highway;
             const isMajor = MAJOR_ROAD_TYPES.includes(hwyType);
 
-            // If currentZoom < threshold, only show major roads
-            // If currentZoom >= threshold, show everything
             if ((currentZoom < ZOOM_THRESHOLD && isMajor) ||
                 (currentZoom >= ZOOM_THRESHOLD)) {
-                // create polylines
                 drawPolyline(road);
             }
         });
     }
 
-    // Clears the polylines currently on the map
     function clearDrawnPolylines() {
         drawnPolylines.forEach(obj => {
             obj.polylineVisible.setMap(null);
@@ -292,12 +315,9 @@
         drawnPolylines = [];
     }
 
-    // Actually draws the polylines for a single "road object"
-    // (the code that used to be in drawPolyline coords + roadInfo)
     function drawPolyline(road) {
         const pathLatLng = road.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
 
-        // Visible line with a thin stroke
         const polylineVisible = new google.maps.Polyline({
             path: pathLatLng,
             strokeColor: "#0000FF",
@@ -305,7 +325,6 @@
             map
         });
 
-        // Hit-detection overlay
         const polylineHitbox = new google.maps.Polyline({
             path: pathLatLng,
             strokeColor: "#0000FF",
@@ -315,6 +334,7 @@
         });
 
         // Attach data to the visible line
+        polylineVisible.highwayVal     = road.highwayVal; // store raw highway
         polylineVisible.roadName       = road.roadName;
         polylineVisible.roadLength     = road.roadLengthKm;
         polylineVisible.pathLatLng     = pathLatLng;
@@ -333,38 +353,31 @@
         polylineVisible.busway         = road.busway;
         polylineVisible.turn           = road.turn;
 
-        // Clicking the hitbox
+        // On click, highlight and show info
         polylineHitbox.addListener("click", (e) => {
-            // If there's a previously selected polyline, revert it
             if (currentlySelectedPolyline) {
                 currentlySelectedPolyline.setOptions({
                     strokeColor: "#0000FF",
                     strokeWeight: 2
                 });
             }
-            // Close the old InfoWindow if any
             if (currentlySelectedInfoWindow) {
                 currentlySelectedInfoWindow.close();
             }
 
-            // Highlight this newly clicked line
             polylineVisible.setOptions({
                 strokeColor: "#FF0000",
                 strokeWeight: 4
             });
 
-            // Show slope & OSM tags
             getElevationAndShowInfo(polylineVisible, e.latLng);
 
             currentlySelectedPolyline = polylineVisible;
-            // The new infoWindow is set inside getElevationAndShowInfo
         });
 
-        // Remember these polylines so we can remove them later if needed
         drawnPolylines.push({ polylineVisible, polylineHitbox });
     }
 
-    // For slope data
     function getElevationAndShowInfo(polyline, clickLocation) {
         const pathRequest = {
             path: polyline.pathLatLng,
@@ -375,13 +388,10 @@
                 const elevStart = results[0].elevation;
                 const elevEnd   = results[results.length - 1].elevation;
                 const slopePercent = computeSlopePercent(polyline.pathLatLng, elevStart, elevEnd);
-
                 const elevations = results.map(r => r.elevation);
-                const infoWindow = showRoadInfoWithElevation(polyline, clickLocation, elevations, slopePercent);
-                currentlySelectedInfoWindow = infoWindow;
+                currentlySelectedInfoWindow = showRoadInfoWithElevation(polyline, clickLocation, elevations, slopePercent);
             } else {
-                const infoWindow = showRoadInfoWithElevation(polyline, clickLocation, null, null);
-                currentlySelectedInfoWindow = infoWindow;
+                currentlySelectedInfoWindow = showRoadInfoWithElevation(polyline, clickLocation, null, null);
             }
         });
     }
@@ -395,23 +405,32 @@
         return (elevChange / distM) * 100;
     }
 
-    // Show InfoWindow with slope + OSM tags, skipping (N/A)
+    // 2) Show InfoWindow w/ slope + OSM tags, skipping (N/A) + Road Type
     function showRoadInfoWithElevation(polyline, clickLocation, elevationArray, slopePercent) {
+        // interpret the highway tag to a friendly label
+        const roadTypeFriendly = interpretHighwayType(polyline.highwayVal || "(N/A)");
+
         let uniqueId = "elevChart_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
         let slopeText = (slopePercent !== null) ? slopePercent.toFixed(2) + "%" : "(No data)";
 
         const name     = polyline.roadName;
         const lengthKm = polyline.roadLength.toFixed(2);
 
-        // We'll build HTML, skipping any tag that is "(N/A)"
         function makeTagLine(label, value) {
-            if (value === "(N/A)") return ""; // skip if N/A
+            if (value === "(N/A)") return "";
             return `<p><strong>${label}:</strong> ${value}</p>`;
         }
 
         let content = `
       <div style="min-width:220px;">
         <p><strong>Road Name:</strong> ${name}</p>
+    `;
+        // If roadTypeFriendly is not "(N/A)", we show a line for "Road Type"
+        if (roadTypeFriendly !== "(N/A)") {
+            content += `<p><strong>Road Type:</strong> ${roadTypeFriendly}</p>`;
+        }
+
+        content += `
         <p><strong>Length (approx):</strong> ${lengthKm} km</p>
         <p><strong>Slope (start-end):</strong> ${slopeText}</p>
         <hr/>
@@ -431,7 +450,6 @@
         ${makeTagLine("Turn", polyline.turn)}
     `;
 
-        // If we have elevation data
         if (elevationArray) {
             content += `
         <p><strong>Elevation Profile:</strong></p>
@@ -446,7 +464,6 @@
         });
         infoWindow.open({ map });
 
-        // Draw chart if we have elevation data
         if (elevationArray) {
             google.maps.event.addListenerOnce(infoWindow, "domready", () => {
                 drawElevationChart(uniqueId, elevationArray, name);
@@ -455,7 +472,7 @@
         return infoWindow;
     }
 
-    // Basic line chart with axis
+    // Basic chart with axes
     function drawElevationChart(canvasId, elevations, roadName) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
@@ -464,7 +481,6 @@
         const width  = canvas.width;
         const height = canvas.height;
 
-        // Margins
         const marginLeft   = 40;
         const marginRight  = 20;
         const marginTop    = 20;
@@ -529,7 +545,17 @@
         ctx.stroke();
     }
 
-    // Approx length
+    // Summation of consecutive segments
+    function computeCoordsDistance(coords) {
+        let dist = 0;
+        for (let i = 0; i < coords.length - 1; i++) {
+            const [lon1, lat1] = coords[i];
+            const [lon2, lat2] = coords[i + 1];
+            dist += haversineDistance(lat1, lon1, lat2, lon2);
+        }
+        return dist;
+    }
+
     function calculateLineLength(geometry) {
         let totalKm = 0;
         if (geometry.type === "LineString") {
@@ -542,18 +568,7 @@
         return totalKm;
     }
 
-    // Summation of consecutive segments
-    function computeCoordsDistance(coords) {
-        let dist = 0;
-        for (let i = 0; i < coords.length - 1; i++) {
-            const [lon1, lat1] = coords[i];
-            const [lon2, lat2] = coords[i + 1];
-            dist += haversineDistance(lat1, lon1, lat2, lon2);
-        }
-        return dist;
-    }
-
-    // Basic Haversine formula
+    // Haversine formula
     function haversineDistance(lat1, lon1, lat2, lon2) {
         const R = 6371; // Earth radius in km
         const dLat = toRad(lat2 - lat1);
@@ -636,3 +651,4 @@
 </script>
 </body>
 </html>
+
