@@ -29,6 +29,7 @@
         #map {
             width: 100%;
             height: 100vh; /* fill the viewport height */
+            position: relative;
         }
 
         /* Position the dropdown on top of the map */
@@ -122,22 +123,22 @@
         "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }
     };
 
-    // 1) interpretHighwayType helper
-    function interpretHighwayType(hwy) {
+    // A helper to assign default colors by highway type
+    function interpretRoadColor(hwy) {
         switch (hwy) {
-            case "motorway":      return "Freeways";
-            case "primary":       return "Major roads";
-            case "secondary":     return "Secondary roads";
-            case "tertiary":      return "Tertiary roads";
-            case "residential":   return "Neighborhood streets";
-            case "service":       return "Access roads / alleys / parking lots";
-            case "unclassified":  return "Unclassified roads";
+            case "motorway":      return "#FF0000";  // red
+            case "trunk":         return "orange";
+            case "primary":       return "darkorange";
+            case "secondary":     return "yellow";
+            case "tertiary":      return "#90EE90";  // lightgreen
+            case "residential":   return "green";
+            case "service":       return "gray";
+            case "unclassified":  return "#A9A9A9";  // darkgray
             case "track":
             case "path":
             case "footway":
-            case "cycleway":      return `Path or cycleway (${hwy})`;
-            // default fallback:
-            default:             return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
+            case "cycleway":      return "#006400";  // darkgreen
+            default:              return "#0000FF";  // fallback: blue
         }
     }
 
@@ -234,7 +235,7 @@
                     // We'll store the raw highway so we can interpret it
                     const highwayVal = props.highway || "(N/A)";
 
-                    // We'll push each segment (LineString or part of MultiLineString) as a "road object"
+                    // We'll push each segment (LineString or part of MultiLineString)
                     if (geom.type === "LineString") {
                         allRoadFeatures.push({
                             props,
@@ -318,16 +319,19 @@
     function drawPolyline(road) {
         const pathLatLng = road.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
 
+        // We pick a color based on the highway type
+        const strokeCol = interpretRoadColor(road.props.highway || "(N/A)");
+
         const polylineVisible = new google.maps.Polyline({
             path: pathLatLng,
-            strokeColor: "#0000FF",
+            strokeColor: strokeCol,
             strokeWeight: 2,
             map
         });
 
         const polylineHitbox = new google.maps.Polyline({
             path: pathLatLng,
-            strokeColor: "#0000FF",
+            strokeColor: strokeCol,
             strokeOpacity: 0.0,
             strokeWeight: 12,
             map
@@ -353,11 +357,11 @@
         polylineVisible.busway         = road.busway;
         polylineVisible.turn           = road.turn;
 
-        // On click, highlight and show info
+        // On click, highlight in red & show info
         polylineHitbox.addListener("click", (e) => {
             if (currentlySelectedPolyline) {
                 currentlySelectedPolyline.setOptions({
-                    strokeColor: "#0000FF",
+                    strokeColor: interpretRoadColor(currentlySelectedPolyline.highwayVal),
                     strokeWeight: 2
                 });
             }
@@ -365,13 +369,13 @@
                 currentlySelectedInfoWindow.close();
             }
 
+            // highlight this newly clicked line
             polylineVisible.setOptions({
                 strokeColor: "#FF0000",
                 strokeWeight: 4
             });
 
             getElevationAndShowInfo(polylineVisible, e.latLng);
-
             currentlySelectedPolyline = polylineVisible;
         });
 
@@ -405,7 +409,6 @@
         return (elevChange / distM) * 100;
     }
 
-    // 2) Show InfoWindow w/ slope + OSM tags, skipping (N/A) + Road Type
     function showRoadInfoWithElevation(polyline, clickLocation, elevationArray, slopePercent) {
         // interpret the highway tag to a friendly label
         const roadTypeFriendly = interpretHighwayType(polyline.highwayVal || "(N/A)");
@@ -472,7 +475,25 @@
         return infoWindow;
     }
 
-    // Basic chart with axes
+    // A helper that maps “highway=…” to a user-friendly label
+    function interpretHighwayType(hwy) {
+        switch (hwy) {
+            case "motorway":      return "Freeways";
+            case "trunk":         return "Trunk roads";
+            case "primary":       return "Major roads";
+            case "secondary":     return "Secondary roads";
+            case "tertiary":      return "Tertiary roads";
+            case "residential":   return "Neighborhood streets";
+            case "service":       return "Access roads / alleys / parking lots";
+            case "unclassified":  return "Unclassified roads";
+            case "track":
+            case "path":
+            case "footway":
+            case "cycleway":      return `Path or cycleway (${hwy})`;
+            default:              return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
+        }
+    }
+
     function drawElevationChart(canvasId, elevations, roadName) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
@@ -487,7 +508,7 @@
         const marginBottom = 40;
 
         const chartWidth  = width  - marginLeft - marginRight;
-        const chartHeight = height - marginTop  - marginBottom;
+        const chartHeight = height - marginTop - marginBottom;
 
         const minElev = Math.min(...elevations);
         const maxElev = Math.max(...elevations);
@@ -568,13 +589,12 @@
         return totalKm;
     }
 
-    // Haversine formula
     function haversineDistance(lat1, lon1, lat2, lon2) {
         const R = 6371; // Earth radius in km
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
-        const a = Math.sin(dLat/2)**2
-            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+        const a = Math.sin(dLat / 2)**2
+            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2)**2;
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R*c;
     }
@@ -651,4 +671,5 @@
 </script>
 </body>
 </html>
+
 
