@@ -4,9 +4,11 @@
     <title>BC Traffic Map – Zoom-Level Loading & OSM Tags</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="initial-scale=1.0" />
-
-    <!-- Instead of embedding your key in code, we load it from config.js -->
     <script src="config.js"></script>
+
+    <!-- 2) If you want geometry simplification, load turf (optional)
+         <script src="https://unpkg.com/@turf/turf/turf.min.js"></script> -->
+
     <script>
         function loadGoogleMaps() {
             const script = document.createElement("script");
@@ -40,6 +42,7 @@
             z-index: 9999;
             font-size: 14px;
             padding: 5px;
+            background: #fff;
         }
 
         #loadingOverlay {
@@ -71,6 +74,71 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        /* NEW CODE: LAYER CONTROLS + LEGEND */
+        #layerControls {
+            position: absolute;
+            top: 180px;
+            left: 10px;
+            z-index: 9999;
+            background: #fff;
+            padding: 8px;
+            font-size: 14px;
+            width: 150px;
+        }
+        #layerControls h4 {
+            margin: 4px 0;
+        }
+        /* For color squares in the legend */
+        .legend-color {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+        }
+
+        /* NEW CODE: DISTANCE BUTTON */
+        #measureBtn {
+            position: absolute;
+            top: 375px;
+            left: 10px;
+            z-index:9999;
+            padding: 5px 8px;
+        }
+
+        /* NEW CODE: COLLAPSIBLE SIDE PANEL for events */
+        #eventPanel {
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 300px;
+            height: 100%;
+            background: #fff;
+            border-left: 1px solid #ccc;
+            padding: 8px;
+            overflow-y: auto;
+            transition: transform 0.3s;
+            transform: translateX(0); /* or translateX(100%) to hide */
+            z-index: 9999;
+        }
+        #eventPanel.hide {
+            transform: translateX(100%);
+        }
+        #toggleEventPanelBtn {
+            position: absolute;
+            top: 410px;
+            left: 10px;
+            z-index: 10000;
+            padding: 5px 8px;
+        }
+        #eventList > div {
+            border-bottom: 1px solid #ccc;
+            padding: 5px;
+            cursor: pointer;
+        }
+        #eventList > div:hover {
+            background: #eee;
+        }
     </style>
 </head>
 <body>
@@ -78,36 +146,68 @@
     <div class="spinner"></div>
     <div>Loading map data...</div>
 </div>
+
 <div id="map"></div>
+
+<!-- The area dropdown as before -->
 <select id="areasDropdown">
     <option value="">-- Choose an Area --</option>
 </select>
+
+<!-- NEW CODE: LAYER CONTROLS + LEGEND -->
+<div id="layerControls">
+    <h4>Layers</h4>
+    <label>
+        <input type="checkbox" id="toggleMajor" checked>
+        Major Roads
+    </label><br/>
+    <label>
+        <input type="checkbox" id="toggleResidential" checked>
+        Residential
+    </label>
+
+    <h4>Legend</h4>
+    <!-- show squares of color + text -->
+    <div>
+        <span class="legend-color" style="background:#FF0000;"></span> Motorway<br/>
+        <span class="legend-color" style="background:orange;"></span> Trunk<br/>
+        <span class="legend-color" style="background:darkorange;"></span> Primary<br/>
+        <span class="legend-color" style="background:yellow;"></span> Secondary<br/>
+        <span class="legend-color" style="background:green;"></span> Residential<br/>
+        <!-- etc. add more if you want -->
+    </div>
+</div>
+
+<!-- NEW CODE: DISTANCE BUTTON -->
+<button id="measureBtn">Measure Distance</button>
+
+<!-- NEW CODE: Collapsible side panel for events -->
+<button id="toggleEventPanelBtn">Hide Events</button>
+<div id="eventPanel">
+    <h3>Active Events</h3>
+    <div id="eventList"></div>
+</div>
 
 <script>
     let loadingOverlay;
     let polylineLoadingCounter = 0;
     let totalPolylineFiles = 4; // The number of GeoJSON files you're loading
 
-    // Keep references for polylines & infoWindows so we can manage them
+    // For polylines / infoWindows
     let map;
     let elevationService;
 
-    // For displaying only one polyline selection at a time:
     let currentlySelectedPolyline = null;
     let currentlySelectedInfoWindow = null;
 
-    // Store *all* loaded roads in memory, and only render what's needed
     let allRoadFeatures = [];
-    let drawnPolylines = []; // references to displayed polylines
+    let drawnPolylines = [];
 
-    // Zoom threshold: below this, only major roads are displayed
     const ZOOM_THRESHOLD = 12;
-    // Let's define which highway types are "major" roads:
     const MAJOR_ROAD_TYPES = [
         "motorway", "trunk", "primary", "secondary",
         "motorway_link", "trunk_link", "primary_link", "secondary_link"
     ];
-
     // Predefined area centers
     const areaCenters = {
         "drivebc.ca/1":  { lat: 49.2058, lng: -123.0233 },
@@ -122,23 +222,49 @@
         "drivebc.ca/10": { lat: 54.7814, lng: -127.1661 },
         "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }
     };
+    // NEW CODE: We'll keep track of toggles
+    // plus measure variables
+    let measureMode = false; // are we measuring distance?
+    let measureStart = null; // first clicked point
 
-    // A helper to assign default colors by highway type
+    // We'll store events in memory so we can build a side panel
+    let allEvents = [];
+
+    // interpret colors by highway type
     function interpretRoadColor(hwy) {
         switch (hwy) {
-            case "motorway":      return "#FF0000";  // red
+            case "motorway":      return "#FF0000";
             case "trunk":         return "orange";
             case "primary":       return "darkorange";
             case "secondary":     return "yellow";
-            case "tertiary":      return "#90EE90";  // lightgreen
+            case "tertiary":      return "#90EE90";
             case "residential":   return "green";
             case "service":       return "gray";
-            case "unclassified":  return "#A9A9A9";  // darkgray
+            case "unclassified":  return "#A9A9A9";
             case "track":
             case "path":
             case "footway":
-            case "cycleway":      return "#006400";  // darkgreen
-            default:              return "#0000FF";  // fallback: blue
+            case "cycleway":      return "#006400";
+            default:              return "#0000FF";
+        }
+    }
+
+    // interpret highways for infoWindow
+    function interpretHighwayType(hwy) {
+        switch (hwy) {
+            case "motorway":     return "Freeways";
+            case "trunk":        return "Trunk roads";
+            case "primary":      return "Major roads";
+            case "secondary":    return "Secondary roads";
+            case "tertiary":     return "Tertiary roads";
+            case "residential":  return "Neighborhood streets";
+            case "service":      return "Access roads / alleys / parking lots";
+            case "unclassified": return "Unclassified roads";
+            case "track":
+            case "path":
+            case "footway":
+            case "cycleway":     return `Path or cycleway (${hwy})`;
+            default:             return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
         }
     }
 
@@ -156,16 +282,14 @@
 
         showLoadingOverlay();
 
-        // Load multiple GeoJSON files
         loadRoadPolylines("map.geojson");
         loadRoadPolylines("westbay_cypress.geojson");
         loadRoadPolylines("burnaby_bsss.geojson");
         loadRoadPolylines("burnaby_highway.geojson");
 
-        // Then load events
         loadEventsWithIcons();
 
-        // Fetch areas from Open511
+        // Areas
         fetch("https://api.open511.gov.bc.ca/areas?format=json")
             .then(r => r.json())
             .then(data => {
@@ -180,12 +304,51 @@
             })
             .catch(err => console.error("Error fetching areas:", err));
 
-        document.getElementById("areasDropdown").addEventListener("change", e => {
+        document.getElementById("areasDropdown").addEventListener("change", (e) => {
             const selectedId = e.target.value;
             const coords = areaCenters[selectedId];
             if (coords) {
                 map.setCenter(coords);
                 map.setZoom(12);
+            }
+        });
+
+        // NEW CODE: Listen for layer toggles => re-render
+        document.getElementById("toggleMajor").addEventListener("change", renderPolylinesForZoom);
+        document.getElementById("toggleResidential").addEventListener("change", renderPolylinesForZoom);
+
+        // NEW CODE: Distance measure
+        document.getElementById("measureBtn").addEventListener("click", () => {
+            measureMode = !measureMode;
+            measureStart = null;
+            alert(measureMode
+                ? "Measure mode ON. Click two points on the map."
+                : "Measure mode OFF.");
+        });
+        map.addListener("click", (e) => {
+            if (!measureMode) return;
+            if (!measureStart) {
+                measureStart = e.latLng;
+            } else {
+                const distance = haversineDistance(
+                    measureStart.lat(), measureStart.lng(),
+                    e.latLng.lat(), e.latLng.lng()
+                );
+                alert(`Distance is about ${distance.toFixed(2)} km.`);
+                // reset if you want them to measure only 2 points
+                measureStart = null;
+            }
+        });
+
+        // NEW CODE: Collapsible events panel
+        document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
+            const panel = document.getElementById("eventPanel");
+            if (panel.classList.contains("hide")) {
+                panel.classList.remove("hide");
+                toggleEventPanelBtn.textContent = "Hide Events";
+            } else {
+                panel.classList.add("hide");
+                toggleEventPanelBtn.textContent = "Show Events";
             }
         });
     }
@@ -203,7 +366,6 @@
                     const roadName     = props.name || "(Unnamed Road)";
                     const roadLengthKm = calculateLineLength(geom);
 
-                    // Basic fields (default to "(N/A)")
                     let cycleway      = props.cycleway      || "(N/A)";
                     let sidewalk      = props.sidewalk      || "(N/A)";
                     let surface       = props.surface       || "(N/A)";
@@ -219,7 +381,6 @@
                     let busway        = props.busway        || "(N/A)";
                     let turn          = props.turn          || "(N/A)";
 
-                    // Override logic if surface is asphalt/paved
                     if ((surface === "asphalt" || surface === "paved")) {
                         if (maxspeed === "(N/A)") {
                             maxspeed = "50";
@@ -232,10 +393,8 @@
                         }
                     }
 
-                    // We'll store the raw highway so we can interpret it
                     const highwayVal = props.highway || "(N/A)";
 
-                    // We'll push each segment (LineString or part of MultiLineString)
                     if (geom.type === "LineString") {
                         allRoadFeatures.push({
                             props,
@@ -297,12 +456,25 @@
 
         const currentZoom = map.getZoom();
 
+        // NEW CODE: read toggles
+        const showMajor = document.getElementById("toggleMajor").checked;
+        const showResidential = document.getElementById("toggleResidential").checked;
+
         allRoadFeatures.forEach(road => {
             const hwyType = road.props.highway;
             const isMajor = MAJOR_ROAD_TYPES.includes(hwyType);
+            const isResidential = (hwyType === "residential");
 
-            if ((currentZoom < ZOOM_THRESHOLD && isMajor) ||
-                (currentZoom >= ZOOM_THRESHOLD)) {
+            // Zoom condition as before
+            const zoomCondition = ((currentZoom < ZOOM_THRESHOLD && isMajor)
+                || (currentZoom >= ZOOM_THRESHOLD));
+
+            // If user turned off major roads, skip them
+            if (!showMajor && isMajor) return;
+            // If user turned off residential, skip them
+            if (!showResidential && isResidential) return;
+
+            if (zoomCondition) {
                 drawPolyline(road);
             }
         });
@@ -318,8 +490,6 @@
 
     function drawPolyline(road) {
         const pathLatLng = road.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
-
-        // We pick a color based on the highway type
         const strokeCol = interpretRoadColor(road.props.highway || "(N/A)");
 
         const polylineVisible = new google.maps.Polyline({
@@ -337,8 +507,7 @@
             map
         });
 
-        // Attach data to the visible line
-        polylineVisible.highwayVal     = road.highwayVal; // store raw highway
+        polylineVisible.highwayVal     = road.highwayVal;
         polylineVisible.roadName       = road.roadName;
         polylineVisible.roadLength     = road.roadLengthKm;
         polylineVisible.pathLatLng     = pathLatLng;
@@ -357,9 +526,9 @@
         polylineVisible.busway         = road.busway;
         polylineVisible.turn           = road.turn;
 
-        // On click, highlight in red & show info
         polylineHitbox.addListener("click", (e) => {
             if (currentlySelectedPolyline) {
+                // revert last selected line
                 currentlySelectedPolyline.setOptions({
                     strokeColor: interpretRoadColor(currentlySelectedPolyline.highwayVal),
                     strokeWeight: 2
@@ -369,7 +538,6 @@
                 currentlySelectedInfoWindow.close();
             }
 
-            // highlight this newly clicked line
             polylineVisible.setOptions({
                 strokeColor: "#FF0000",
                 strokeWeight: 4
@@ -410,9 +578,7 @@
     }
 
     function showRoadInfoWithElevation(polyline, clickLocation, elevationArray, slopePercent) {
-        // interpret the highway tag to a friendly label
         const roadTypeFriendly = interpretHighwayType(polyline.highwayVal || "(N/A)");
-
         let uniqueId = "elevChart_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
         let slopeText = (slopePercent !== null) ? slopePercent.toFixed(2) + "%" : "(No data)";
 
@@ -428,7 +594,6 @@
       <div style="min-width:220px;">
         <p><strong>Road Name:</strong> ${name}</p>
     `;
-        // If roadTypeFriendly is not "(N/A)", we show a line for "Road Type"
         if (roadTypeFriendly !== "(N/A)") {
             content += `<p><strong>Road Type:</strong> ${roadTypeFriendly}</p>`;
         }
@@ -475,25 +640,6 @@
         return infoWindow;
     }
 
-    // A helper that maps “highway=…” to a user-friendly label
-    function interpretHighwayType(hwy) {
-        switch (hwy) {
-            case "motorway":      return "Freeways";
-            case "trunk":         return "Trunk roads";
-            case "primary":       return "Major roads";
-            case "secondary":     return "Secondary roads";
-            case "tertiary":      return "Tertiary roads";
-            case "residential":   return "Neighborhood streets";
-            case "service":       return "Access roads / alleys / parking lots";
-            case "unclassified":  return "Unclassified roads";
-            case "track":
-            case "path":
-            case "footway":
-            case "cycleway":      return `Path or cycleway (${hwy})`;
-            default:              return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
-        }
-    }
-
     function drawElevationChart(canvasId, elevations, roadName) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
@@ -508,7 +654,7 @@
         const marginBottom = 40;
 
         const chartWidth  = width  - marginLeft - marginRight;
-        const chartHeight = height - marginTop - marginBottom;
+        const chartHeight = height - marginTop  - marginBottom;
 
         const minElev = Math.min(...elevations);
         const maxElev = Math.max(...elevations);
@@ -547,15 +693,16 @@
             ctx.stroke();
 
             ctx.textAlign = "right";
-            ctx.fillText(value.toFixed(0) + "m", marginLeft - 8, y + 3);
+            ctx.fillText(value.toFixed(0)+"m", marginLeft - 8, y+3);
         }
 
         // Plot the line
         ctx.beginPath();
         elevations.forEach((elev, i) => {
-            const xRatio = i / (elevations.length - 1);
+            const xRatio = i/(elevations.length-1);
             const x = marginLeft + (xRatio * chartWidth);
-            const elevNorm = (elev - minElev) / range;
+
+            const elevNorm = (elev - minElev)/range;
             const y = marginTop + chartHeight - (elevNorm * chartHeight);
 
             if (i === 0) ctx.moveTo(x, y);
@@ -566,7 +713,6 @@
         ctx.stroke();
     }
 
-    // Summation of consecutive segments
     function computeCoordsDistance(coords) {
         let dist = 0;
         for (let i = 0; i < coords.length - 1; i++) {
@@ -593,30 +739,33 @@
         const R = 6371; // Earth radius in km
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
-        const a = Math.sin(dLat / 2)**2
-            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2)**2;
+        const a = Math.sin(dLat/2)**2
+            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R*c;
     }
 
     function toRad(val){ return (val * Math.PI) / 180; }
 
-    // Load events from Open511
+    // NEW CODE: We store all events and show them in #eventList
     function loadEventsWithIcons() {
         fetch("https://api.open511.gov.bc.ca/events?format=json&status=ACTIVE")
             .then(r => r.json())
             .then(data => {
                 if (data.events) {
+                    allEvents = data.events; // store them for the side panel
                     data.events.forEach(e => {
                         if(["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(e.event_type)){
                             placeEventMarker(e);
                         }
                     });
+                    renderEventList(); // build side panel list
                 }
             })
             .catch(err => console.error("Error fetching events:", err));
     }
 
+    // create markers as before
     function placeEventMarker(event) {
         if (!event.geography || event.geography.type !== "Point") return;
         const coords = event.geography.coordinates;
@@ -649,6 +798,7 @@
         });
     }
 
+    // side panel content
     function buildInfoWindowContent(event){
         const headline    = event.headline     || "(No Headline)";
         const description = event.description  || "(No Description)";
@@ -668,8 +818,35 @@
       </div>
     `;
     }
+
+    // NEW CODE: Render the side panel list of events
+    function renderEventList() {
+        const eventListDiv = document.getElementById("eventList");
+        eventListDiv.innerHTML = "";
+
+        allEvents.forEach(evt => {
+            if (!["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(evt.event_type)) return;
+
+            const d = document.createElement("div");
+            d.innerHTML = `
+              <strong>${evt.event_type}</strong> - ${evt.headline || "(No Headline)"}
+              <br/>Severity: ${evt.severity || "(No Severity)"}
+            `;
+            d.addEventListener("click", () => {
+                // Zoom map to event
+                if(evt.geography && evt.geography.type === "Point") {
+                    const [lon, lat] = evt.geography.coordinates;
+                    map.setCenter({ lat, lng: lon });
+                    map.setZoom(13);
+                }
+            });
+            eventListDiv.appendChild(d);
+        });
+    }
 </script>
 </body>
 </html>
+
+
 
 
