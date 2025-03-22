@@ -823,30 +823,42 @@
     `;
     }
 
-    // NEW CODE: Render the side panel list of events
     function renderEventList() {
         const eventListDiv = document.getElementById("eventList");
         eventListDiv.innerHTML = "";
 
         allEvents.forEach(evt => {
+            // Only list these event types
             if (!["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(evt.event_type)) return;
 
             const d = document.createElement("div");
+
+            // Try to grab a city/area name from evt.areas
+            let locationText = "(No Location)";
+            if (evt.areas && Array.isArray(evt.areas) && evt.areas.length > 0) {
+                // e.g. "Lower Mainland District" or "Vancouver Island District"
+                locationText = evt.areas[0].name || "(No Area Name)";
+            }
+
             d.innerHTML = `
-              <strong>${evt.event_type}</strong> - ${evt.headline || "(No Headline)"}
-              <br/>Severity: ${evt.severity || "(No Severity)"}
-            `;
+      <strong>${evt.event_type}</strong> - ${evt.headline || "(No Headline)"}<br/>
+      Severity: ${evt.severity || "(No Severity)"}<br/>
+      <em>Location:</em> ${locationText}
+    `;
+
+            // On click, zoom the map to this event
             d.addEventListener("click", () => {
-                // Zoom map to event
-                if(evt.geography && evt.geography.type === "Point") {
+                if (evt.geography && evt.geography.type === "Point") {
                     const [lon, lat] = evt.geography.coordinates;
                     map.setCenter({ lat, lng: lon });
                     map.setZoom(13);
                 }
             });
+
             eventListDiv.appendChild(d);
         });
     }
+
 </script>
 </body>
 </html>
