@@ -185,15 +185,12 @@
         script.onload = () => initMap(); // Initialize map after loading
         document.head.appendChild(script);
     }
-
-    // Call the function
     loadGoogleMaps();
 
     let loadingOverlay;
     let polylineLoadingCounter = 0;
     let totalPolylineFiles = 4; // The number of GeoJSON files you're loading
 
-    // For polylines / infoWindows
     let map;
     let elevationService;
 
@@ -205,7 +202,7 @@
 
     const ZOOM_THRESHOLD = 12;
     const MAJOR_ROAD_TYPES = [
-        "motorway","trunk","primary","secondary",
+        "motorway", "trunk", "primary", "secondary",
         "motorway_link","trunk_link","primary_link","secondary_link"
     ];
 
@@ -224,16 +221,14 @@
         "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }
     };
 
-    // UPDATED for "X" marker measure
-    // We'll track measure mode state:
+    // --- Measure Distance State ---
     let measureMode = false;
-    let measureClickCount = 0;
     let measureMarkerA = null;
     let measureMarkerB = null;
     let measureLine   = null;
 
-    // We'll store events in memory so we can build a side panel
-    let allEvents = [];
+    // We'll keep an interactive line that updates on mousemove
+    let measureInteractiveLine = null;
 
     // interpret colors by highway type
     function interpretRoadColor(hwy) {
@@ -287,14 +282,16 @@
 
         showLoadingOverlay();
 
+        // load polylines
         loadRoadPolylines("map.geojson");
         loadRoadPolylines("westbay_cypress.geojson");
         loadRoadPolylines("burnaby_bsss.geojson");
         loadRoadPolylines("burnaby_highway.geojson");
 
+        // load events
         loadEventsWithIcons();
 
-        // Load areas
+        // load areas for dropdown
         fetch("https://api.open511.gov.bc.ca/areas?format=json")
             .then(r => r.json())
             .then(data => {
@@ -318,87 +315,92 @@
             }
         });
 
+        // layer toggles
         document.getElementById("toggleMajor").addEventListener("change", renderPolylinesForZoom);
         document.getElementById("toggleResidential").addEventListener("change", renderPolylinesForZoom);
 
-        // NEW CODE: measure distance toggler
+        // measure distance button
         document.getElementById("measureBtn").addEventListener("click", () => {
             toggleMeasureMode();
         });
 
-        // UPDATED for "X" marker measure
-        // We'll watch all map clicks. If measureMode is on, place marker A or B
+        // Listen to map clicks for measure logic
         map.addListener("click", (e) => {
-            if (!measureMode) return; // only measure if toggled on
+            if (!measureMode) return;
 
-            measureClickCount++;
-            if (measureClickCount === 1) {
-                // first click => place marker A
-                measureMarkerA = placeXMarker(e.latLng, "A");
-            } else if (measureClickCount === 2) {
-                // second click => place marker B, draw line, compute distance
-                measureMarkerB = placeXMarker(e.latLng, "B");
-                // draw dotted line
-                measureLine = new google.maps.Polyline({
-                    path: [ measureMarkerA.getPosition(), measureMarkerB.getPosition() ],
+            // If no markerA => place first marker
+            if (!measureMarkerA) {
+                measureMarkerA = placeMeasureMarker(e.latLng, "A", false);
+                // create an interactive line from markerA to the mouse
+                measureInteractiveLine = new google.maps.Polyline({
+                    path: [ measureMarkerA.getPosition(), measureMarkerA.getPosition() ],
                     map,
                     strokeColor: "#0000FF",
                     strokeWeight: 2,
-                    // dotted/dashed line via icons repeat
                     icons: [{
                         icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
                         offset: "0",
                         repeat: "10px"
                     }]
                 });
+                // We'll update measureInteractiveLine on "mousemove"
+                map.addListener("mousemove", onMeasureMouseMove);
 
-                const distKm = haversineDistance(
-                    measureMarkerA.getPosition().lat(), measureMarkerA.getPosition().lng(),
-                    measureMarkerB.getPosition().lat(), measureMarkerB.getPosition().lng()
-                );
-                alert(`Distance between A and B is approx ${distKm.toFixed(2)} km`);
+            } else if (!measureMarkerB) {
+                // place second marker => fix the line
+                measureMarkerB = placeMeasureMarker(e.latLng, "B", true);
 
-                // after placing second marker, we disable measure mode
+                // Remove mousemove listener
+                google.maps.event.clearListeners(map, "mousemove");
+                // set the line to final positions
+                measureInteractiveLine.setPath([ measureMarkerA.getPosition(), measureMarkerB.getPosition() ]);
+                // rename measureInteractiveLine => measureLine (final)
+                measureLine = measureInteractiveLine;
+                measureInteractiveLine = null;
+
+                // done measuring => turn measureMode off
                 measureMode = false;
-                measureClickCount = 0;
-            }
-        });
-
-        // Collapsible events panel
-        document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
-            const panel = document.getElementById("eventPanel");
-            if (panel.classList.contains("hide")) {
-                panel.classList.remove("hide");
-                toggleEventPanelBtn.textContent = "Hide Events";
-            } else {
-                panel.classList.add("hide");
-                toggleEventPanelBtn.textContent = "Show Events";
             }
         });
     }
 
-    // NEW helper to toggle measure mode
+    // Called each "mousemove" if measureMode is on and we have a markerA
+    function onMeasureMouseMove(e) {
+        if (!measureInteractiveLine) return;
+        // update line path from markerA to the current mouse latlng
+        measureInteractiveLine.setPath([
+            measureMarkerA.getPosition(),
+            e.latLng
+        ]);
+    }
+
+    // toggles measure mode on/off, clearing old measure if needed
     function toggleMeasureMode() {
         measureMode = !measureMode;
-        measureClickCount = 0;
-
-        // remove old measure markers/line if exist
-        if (measureMarkerA) { measureMarkerA.setMap(null); measureMarkerA = null; }
-        if (measureMarkerB) { measureMarkerB.setMap(null); measureMarkerB = null; }
-        if (measureLine)    { measureLine.setMap(null);    measureLine = null; }
-
-        alert(measureMode
-            ? "Measure mode ON. Click two points for distance."
-            : "Measure mode OFF."
-        );
+        // if turning on, we wait for user clicks
+        if (measureMode) {
+            // clear any old measure
+            if (measureMarkerA) { measureMarkerA.setMap(null); measureMarkerA = null; }
+            if (measureMarkerB) { measureMarkerB.setMap(null); measureMarkerB = null; }
+            if (measureLine)    { measureLine.setMap(null);    measureLine = null; }
+            if (measureInteractiveLine) { measureInteractiveLine.setMap(null); measureInteractiveLine = null; }
+        } else {
+            // turning off => also clear
+            if (measureMarkerA) { measureMarkerA.setMap(null); measureMarkerA = null; }
+            if (measureMarkerB) { measureMarkerB.setMap(null); measureMarkerB = null; }
+            if (measureLine)    { measureLine.setMap(null);    measureLine = null; }
+            if (measureInteractiveLine) { measureInteractiveLine.setMap(null); measureInteractiveLine = null; }
+        }
     }
 
-    // NEW function placeXMarker(...) to place a marker with an "X" icon
-    function placeXMarker(latLng, label) {
-        // We'll use an inline SVG "X" icon
+    // place an "X" marker with an InfoWindow showing coords & nearest road
+    // label => "A" or "B"
+    // finalize => if it's the second marker, we also display the distance from the first
+    function placeMeasureMarker(latLng, label, finalize) {
+        // custom "X" icon
         const svgIcon = `
         <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
-          <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">X</text>
+          <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
         </svg>
       `;
         const marker = new google.maps.Marker({
@@ -410,20 +412,42 @@
             }
         });
 
-        // build an InfoWindow showing coords
+        // We'll do a placeholder "nearest road" for now:
+        const nearestRoadName = getNearestRoadFake(latLng);
+
         const lat = latLng.lat().toFixed(5);
         const lng = latLng.lng().toFixed(5);
-        const infoContent = `<strong>Point ${label}</strong><br/>Coords: ${lat}, ${lng}`;
-        const infoWin = new google.maps.InfoWindow({ content: infoContent });
-        // open on marker click
-        marker.addListener("click", () => infoWin.open(map, marker));
+
+        let content = `<strong>Point ${label}</strong><br/>
+                     Coordinates: ${lat}, ${lng}<br/>
+                     Nearest Road: ${nearestRoadName}`;
+
+        // If it's the second marker, compute distance from the first:
+        if (finalize && measureMarkerA) {
+            const distKm = haversineDistance(
+                measureMarkerA.getPosition().lat(), measureMarkerA.getPosition().lng(),
+                latLng.lat(), latLng.lng()
+            );
+            content += `<br/>Distance from A: ${distKm.toFixed(2)} km`;
+        }
+
+        const infoWindow = new google.maps.InfoWindow({ content });
+        infoWindow.open(map, marker);
+
+        // On click, re-open
+        marker.addListener("click", () => {
+            infoWindow.open(map, marker);
+        });
 
         return marker;
     }
 
-    // The rest of your code is unchanged from here on, except we skip the old measure logic...
-    // loadRoadPolylines, showLoadingOverlay, hideLoadingOverlay, renderPolylinesForZoom, etc. remain the same.
-
+    // placeholder function for "nearest road" logic
+    function getNearestRoadFake(latLng) {
+        // In real usage, you'd do a reverse geocode or your own road check
+        // For now, we just return a placeholder
+        return "(Unknown Road)";
+    }
 
     function loadRoadPolylines(file) {
         fetch(file)
@@ -525,8 +549,8 @@
 
     function renderPolylinesForZoom() {
         clearDrawnPolylines();
-        const currentZoom = map.getZoom();
 
+        const currentZoom = map.getZoom();
         const showMajor = document.getElementById("toggleMajor").checked;
         const showResidential = document.getElementById("toggleResidential").checked;
 
@@ -535,7 +559,6 @@
             const isMajor = MAJOR_ROAD_TYPES.includes(hwyType);
             const isResidential = (hwyType === "residential");
 
-            // Only show major roads below threshold, or all roads above threshold
             const zoomCondition = ((currentZoom < ZOOM_THRESHOLD && isMajor)
                 || (currentZoom >= ZOOM_THRESHOLD));
 
@@ -693,10 +716,7 @@
         }
         content += `</div>`;
 
-        const infoWindow = new google.maps.InfoWindow({
-            content,
-            position: clickLocation
-        });
+        const infoWindow = new google.maps.InfoWindow({ content, position: clickLocation });
         infoWindow.open({ map });
 
         if (elevationArray) {
@@ -807,11 +827,10 @@
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
         const a = Math.sin(dLat/2)**2
-            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R*c;
     }
-
     function toRad(val){ return (val * Math.PI) / 180; }
 
     // loadEventsWithIcons, placeEventMarker, buildInfoWindowContent, renderEventList remain the same
