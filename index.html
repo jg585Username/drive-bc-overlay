@@ -177,9 +177,7 @@
 
 <script>
     function loadGoogleMaps() {
-        // We'll use a placeholder here so your build step can replace it with the real key.
         const googleMapsApiKey = "__MY_API_KEY__";
-
         const script = document.createElement("script");
         script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}`;
         script.async = true;
@@ -190,6 +188,7 @@
 
     // Call the function
     loadGoogleMaps();
+
     let loadingOverlay;
     let polylineLoadingCounter = 0;
     let totalPolylineFiles = 4; // The number of GeoJSON files you're loading
@@ -206,9 +205,10 @@
 
     const ZOOM_THRESHOLD = 12;
     const MAJOR_ROAD_TYPES = [
-        "motorway", "trunk", "primary", "secondary",
-        "motorway_link", "trunk_link", "primary_link", "secondary_link"
+        "motorway","trunk","primary","secondary",
+        "motorway_link","trunk_link","primary_link","secondary_link"
     ];
+
     // Predefined area centers
     const areaCenters = {
         "drivebc.ca/1":  { lat: 49.2058, lng: -123.0233 },
@@ -223,10 +223,14 @@
         "drivebc.ca/10": { lat: 54.7814, lng: -127.1661 },
         "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }
     };
-    // NEW CODE: We'll keep track of toggles
-    // plus measure variables
-    let measureMode = false; // are we measuring distance?
-    let measureStart = null; // first clicked point
+
+    // UPDATED for "X" marker measure
+    // We'll track measure mode state:
+    let measureMode = false;
+    let measureClickCount = 0;
+    let measureMarkerA = null;
+    let measureMarkerB = null;
+    let measureLine   = null;
 
     // We'll store events in memory so we can build a side panel
     let allEvents = [];
@@ -290,7 +294,7 @@
 
         loadEventsWithIcons();
 
-        // Areas
+        // Load areas
         fetch("https://api.open511.gov.bc.ca/areas?format=json")
             .then(r => r.json())
             .then(data => {
@@ -314,34 +318,53 @@
             }
         });
 
-        // NEW CODE: Listen for layer toggles => re-render
         document.getElementById("toggleMajor").addEventListener("change", renderPolylinesForZoom);
         document.getElementById("toggleResidential").addEventListener("change", renderPolylinesForZoom);
 
-        // NEW CODE: Distance measure
+        // NEW CODE: measure distance toggler
         document.getElementById("measureBtn").addEventListener("click", () => {
-            measureMode = !measureMode;
-            measureStart = null;
-            alert(measureMode
-                ? "Measure mode ON. Click two points on the map."
-                : "Measure mode OFF.");
+            toggleMeasureMode();
         });
+
+        // UPDATED for "X" marker measure
+        // We'll watch all map clicks. If measureMode is on, place marker A or B
         map.addListener("click", (e) => {
-            if (!measureMode) return;
-            if (!measureStart) {
-                measureStart = e.latLng;
-            } else {
-                const distance = haversineDistance(
-                    measureStart.lat(), measureStart.lng(),
-                    e.latLng.lat(), e.latLng.lng()
+            if (!measureMode) return; // only measure if toggled on
+
+            measureClickCount++;
+            if (measureClickCount === 1) {
+                // first click => place marker A
+                measureMarkerA = placeXMarker(e.latLng, "A");
+            } else if (measureClickCount === 2) {
+                // second click => place marker B, draw line, compute distance
+                measureMarkerB = placeXMarker(e.latLng, "B");
+                // draw dotted line
+                measureLine = new google.maps.Polyline({
+                    path: [ measureMarkerA.getPosition(), measureMarkerB.getPosition() ],
+                    map,
+                    strokeColor: "#0000FF",
+                    strokeWeight: 2,
+                    // dotted/dashed line via icons repeat
+                    icons: [{
+                        icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
+                        offset: "0",
+                        repeat: "10px"
+                    }]
+                });
+
+                const distKm = haversineDistance(
+                    measureMarkerA.getPosition().lat(), measureMarkerA.getPosition().lng(),
+                    measureMarkerB.getPosition().lat(), measureMarkerB.getPosition().lng()
                 );
-                alert(`Distance is about ${distance.toFixed(2)} km.`);
-                // reset if you want them to measure only 2 points
-                measureStart = null;
+                alert(`Distance between A and B is approx ${distKm.toFixed(2)} km`);
+
+                // after placing second marker, we disable measure mode
+                measureMode = false;
+                measureClickCount = 0;
             }
         });
 
-        // NEW CODE: Collapsible events panel
+        // Collapsible events panel
         document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
             const panel = document.getElementById("eventPanel");
             if (panel.classList.contains("hide")) {
@@ -353,6 +376,54 @@
             }
         });
     }
+
+    // NEW helper to toggle measure mode
+    function toggleMeasureMode() {
+        measureMode = !measureMode;
+        measureClickCount = 0;
+
+        // remove old measure markers/line if exist
+        if (measureMarkerA) { measureMarkerA.setMap(null); measureMarkerA = null; }
+        if (measureMarkerB) { measureMarkerB.setMap(null); measureMarkerB = null; }
+        if (measureLine)    { measureLine.setMap(null);    measureLine = null; }
+
+        alert(measureMode
+            ? "Measure mode ON. Click two points for distance."
+            : "Measure mode OFF."
+        );
+    }
+
+    // NEW function placeXMarker(...) to place a marker with an "X" icon
+    function placeXMarker(latLng, label) {
+        // We'll use an inline SVG "X" icon
+        const svgIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+          <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">X</text>
+        </svg>
+      `;
+        const marker = new google.maps.Marker({
+            position: latLng,
+            map,
+            icon: {
+                url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svgIcon),
+                scaledSize: new google.maps.Size(36,36)
+            }
+        });
+
+        // build an InfoWindow showing coords
+        const lat = latLng.lat().toFixed(5);
+        const lng = latLng.lng().toFixed(5);
+        const infoContent = `<strong>Point ${label}</strong><br/>Coords: ${lat}, ${lng}`;
+        const infoWin = new google.maps.InfoWindow({ content: infoContent });
+        // open on marker click
+        marker.addListener("click", () => infoWin.open(map, marker));
+
+        return marker;
+    }
+
+    // The rest of your code is unchanged from here on, except we skip the old measure logic...
+    // loadRoadPolylines, showLoadingOverlay, hideLoadingOverlay, renderPolylinesForZoom, etc. remain the same.
+
 
     function loadRoadPolylines(file) {
         fetch(file)
@@ -454,10 +525,8 @@
 
     function renderPolylinesForZoom() {
         clearDrawnPolylines();
-
         const currentZoom = map.getZoom();
 
-        // NEW CODE: read toggles
         const showMajor = document.getElementById("toggleMajor").checked;
         const showResidential = document.getElementById("toggleResidential").checked;
 
@@ -466,13 +535,11 @@
             const isMajor = MAJOR_ROAD_TYPES.includes(hwyType);
             const isResidential = (hwyType === "residential");
 
-            // Zoom condition as before
+            // Only show major roads below threshold, or all roads above threshold
             const zoomCondition = ((currentZoom < ZOOM_THRESHOLD && isMajor)
                 || (currentZoom >= ZOOM_THRESHOLD));
 
-            // If user turned off major roads, skip them
             if (!showMajor && isMajor) return;
-            // If user turned off residential, skip them
             if (!showResidential && isResidential) return;
 
             if (zoomCondition) {
@@ -529,7 +596,6 @@
 
         polylineHitbox.addListener("click", (e) => {
             if (currentlySelectedPolyline) {
-                // revert last selected line
                 currentlySelectedPolyline.setOptions({
                     strokeColor: interpretRoadColor(currentlySelectedPolyline.highwayVal),
                     strokeWeight: 2
@@ -748,25 +814,24 @@
 
     function toRad(val){ return (val * Math.PI) / 180; }
 
-    // NEW CODE: We store all events and show them in #eventList
+    // loadEventsWithIcons, placeEventMarker, buildInfoWindowContent, renderEventList remain the same
     function loadEventsWithIcons() {
         fetch("https://api.open511.gov.bc.ca/events?format=json&status=ACTIVE")
             .then(r => r.json())
             .then(data => {
                 if (data.events) {
-                    allEvents = data.events; // store them for the side panel
+                    allEvents = data.events;
                     data.events.forEach(e => {
                         if(["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(e.event_type)){
                             placeEventMarker(e);
                         }
                     });
-                    renderEventList(); // build side panel list
+                    renderEventList();
                 }
             })
             .catch(err => console.error("Error fetching events:", err));
     }
 
-    // create markers as before
     function placeEventMarker(event) {
         if (!event.geography || event.geography.type !== "Point") return;
         const coords = event.geography.coordinates;
@@ -799,7 +864,6 @@
         });
     }
 
-    // side panel content
     function buildInfoWindowContent(event){
         const headline    = event.headline     || "(No Headline)";
         const description = event.description  || "(No Description)";
@@ -825,25 +889,20 @@
         eventListDiv.innerHTML = "";
 
         allEvents.forEach(evt => {
-            // Only list these event types
             if (!["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(evt.event_type)) return;
 
             const d = document.createElement("div");
-
-            // Try to grab a city/area name from evt.areas
             let locationText = "(No Location)";
             if (evt.areas && Array.isArray(evt.areas) && evt.areas.length > 0) {
-                // e.g. "Lower Mainland District" or "Vancouver Island District"
                 locationText = evt.areas[0].name || "(No Area Name)";
             }
 
             d.innerHTML = `
-      <strong>${evt.event_type}</strong> - ${evt.headline || "(No Headline)"}<br/>
-      Severity: ${evt.severity || "(No Severity)"}<br/>
-      <em>Location:</em> ${locationText}
-    `;
+              <strong>${evt.event_type}</strong> - ${evt.headline || "(No Headline)"}<br/>
+              Severity: ${evt.severity || "(No Severity)"}<br/>
+              <em>Location:</em> ${locationText}
+            `;
 
-            // On click, zoom the map to this event
             d.addEventListener("click", () => {
                 if (evt.geography && evt.geography.type === "Point") {
                     const [lon, lat] = evt.geography.coordinates;
@@ -851,11 +910,9 @@
                     map.setZoom(13);
                 }
             });
-
             eventListDiv.appendChild(d);
         });
     }
-
 </script>
 </body>
 </html>
