@@ -5,27 +5,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="initial-scale=1.0" />
     <script src="config.js"></script>
-
-    <!-- 2) If you want geometry simplification, load turf (optional)
-         <script src="https://unpkg.com/@turf/turf/turf.min.js"></script> -->
-
-    <script>
-        function loadGoogleMaps() {
-            // We'll use a placeholder here so your build step can replace it with the real key.
-            const googleMapsApiKey = "__MY_API_KEY__";
-
-            const script = document.createElement("script");
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}`;
-            script.async = true;
-            script.defer = true;
-            script.onload = () => initMap(); // Initialize map after loading
-            document.head.appendChild(script);
-        }
-
-        // Call the function
-        loadGoogleMaps();
-    </script>
-
     <style>
         /* Full screen map + zero margin */
         html, body {
@@ -198,6 +177,20 @@
 </div>
 
 <script>
+    function loadGoogleMaps() {
+        // We'll use a placeholder here so your build step can replace it with the real key.
+        const googleMapsApiKey = "__MY_API_KEY__";
+
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}`;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => initMap(); // Initialize map after loading
+        document.head.appendChild(script);
+    }
+
+    // Call the function
+    loadGoogleMaps();
     let loadingOverlay;
     let polylineLoadingCounter = 0;
     let totalPolylineFiles = 4; // The number of GeoJSON files you're loading
