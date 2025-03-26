@@ -453,9 +453,14 @@
     function getNearestRoad(latLng, apiKey, callback) {
         const lat = latLng.lat();
         const lng = latLng.lng();
-
+        const googleMapsApiKey = "__MY_API_KEY__";
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
         // 1) Roads API to snap lat/lng to the nearest road
-        const roadsUrl = `https://roads.googleapis.com/v1/nearestRoads?points=${lat},${lng}&key=${apiKey}`;
+        const roadsUrl = `https://roads.googleapis.com/v1/nearestRoads?points=${lat},${lng}&key=${googleMapsApiKey}`;
 
         fetch(roadsUrl)
             .then(response => response.json())
@@ -464,7 +469,7 @@
                     // We have a placeId from nearestRoads
                     const placeId = data.snappedPoints[0].placeId;
                     // 2) Next call: Place Details API to get a real name
-                    const placeUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${apiKey}`;
+                    const placeUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${googleMapsApiKey}`;
                     return fetch(placeUrl);
                 } else {
                     // No roads found
