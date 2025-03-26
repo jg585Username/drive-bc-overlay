@@ -19,3 +19,11 @@ const outputPath = path.join(distFolder, "index.html");
 fs.writeFileSync(outputPath, html);
 
 console.log("Built index.html with your Google Maps API key!");
+
+const geoFiles = ["map.geojson", "burnaby_bsss.geojson", "westbay_cypress.geojson", "burnaby_highway.geojson"];
+geoFiles.forEach(filename => {
+    fs.copyFileSync(
+        path.join(__dirname, filename),
+        path.join(__dirname, "dist", filename)
+    );
+});
