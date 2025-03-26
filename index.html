@@ -364,7 +364,16 @@
         });
     }
 
-    // Called each "mousemove" if measureMode is on and we have a markerA
+    document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
+        const panel = document.getElementById("eventPanel");
+        if (panel.classList.contains("hide")) {
+            panel.classList.remove("hide");
+            toggleEventPanelBtn.textContent = "Hide Events";
+        } else {
+            panel.classList.add("hide");
+            toggleEventPanelBtn.textContent = "Show Events";
+        }
+    });
     function onMeasureMouseMove(e) {
         if (!measureInteractiveLine) return;
         // update line path from markerA to the current mouse latlng
