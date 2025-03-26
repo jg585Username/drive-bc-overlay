@@ -6,7 +6,7 @@ if (!key) {
     throw new Error("GOOGLE_MAPS_API_KEY is not defined in environment!");
 }
 
-const templatePath = path.join(__dirname, "index.template.html");
+const templatePath = path.join(__dirname, "index.html");
 let html = fs.readFileSync(templatePath, "utf8");
 
 html = html.replace("__MY_API_KEY__", key);
