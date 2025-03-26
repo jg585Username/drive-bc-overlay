@@ -1,4 +1,4 @@
-# drive-bc-overlay
+# drive-bc-overlay [![Netlify Status](https://api.netlify.com/api/v1/badges/231bab18-35f8-4e00-98fa-7b06a361f5d4/deploy-status)](https://app.netlify.com/sites/drivebc/deploys)
 Collection of important road data for the Metro Vancouver Area from OpenBC, OSM, and Google Maps in one place
 
 ## Overpass Query
