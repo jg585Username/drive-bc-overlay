@@ -402,16 +402,13 @@
         }
     }
 
-    // place an "X" marker with an InfoWindow showing coords & nearest road
-    // label => "A" or "B"
-    // finalize => if it's the second marker, we also display the distance from the first
     function placeMeasureMarker(latLng, label, finalize) {
         // custom "X" icon
         const svgIcon = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
-          <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
-        </svg>
-      `;
+    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+      <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
+    </svg>
+  `;
         const marker = new google.maps.Marker({
             position: latLng,
             map,
@@ -421,41 +418,82 @@
             }
         });
 
-        // We'll do a placeholder "nearest road" for now:
-        const nearestRoadName = getNearestRoadFake(latLng);
+        // We'll do an async call to get the nearest road
+        getNearestRoad(latLng, (roadName) => {
+            // Once we have the roadName, build final InfoWindow content
+            const lat = latLng.lat().toFixed(5);
+            const lng = latLng.lng().toFixed(5);
 
-        const lat = latLng.lat().toFixed(5);
-        const lng = latLng.lng().toFixed(5);
+            let content = `<strong>Point ${label}</strong><br/>
+                   Coordinates: ${lat}, ${lng}<br/>
+                   Nearest Road: ${roadName || "(No Road Found)"}`;
 
-        let content = `<strong>Point ${label}</strong><br/>
-                     Coordinates: ${lat}, ${lng}<br/>
-                     Nearest Road: ${nearestRoadName}`;
+            // If it's the second marker (finalize == true), compute distance from measureMarkerA
+            if (finalize && measureMarkerA) {
+                const distKm = haversineDistance(
+                    measureMarkerA.getPosition().lat(), measureMarkerA.getPosition().lng(),
+                    latLng.lat(), latLng.lng()
+                );
+                content += `<br/>Distance from A: ${distKm.toFixed(2)} km`;
+            }
 
-        // If it's the second marker, compute distance from the first:
-        if (finalize && measureMarkerA) {
-            const distKm = haversineDistance(
-                measureMarkerA.getPosition().lat(), measureMarkerA.getPosition().lng(),
-                latLng.lat(), latLng.lng()
-            );
-            content += `<br/>Distance from A: ${distKm.toFixed(2)} km`;
-        }
-
-        const infoWindow = new google.maps.InfoWindow({ content });
-        infoWindow.open(map, marker);
-
-        // On click, re-open
-        marker.addListener("click", () => {
+            // Create or update an InfoWindow with that content
+            const infoWindow = new google.maps.InfoWindow({ content });
             infoWindow.open(map, marker);
+
+            // On click, re-open
+            marker.addListener("click", () => infoWindow.open(map, marker));
         });
 
         return marker;
     }
 
+
     // placeholder function for "nearest road" logic
-    function getNearestRoadFake(latLng) {
-        // In real usage, you'd do a reverse geocode or your own road check
-        // For now, we just return a placeholder
-        return "(Unknown Road)";
+    function getNearestRoad(latLng, apiKey, callback) {
+        const lat = latLng.lat();
+        const lng = latLng.lng();
+
+        // 1) Roads API to snap lat/lng to the nearest road
+        const roadsUrl = `https://roads.googleapis.com/v1/nearestRoads?points=${lat},${lng}&key=${apiKey}`;
+
+        fetch(roadsUrl)
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.snappedPoints && data.snappedPoints.length > 0) {
+                    // We have a placeId from nearestRoads
+                    const placeId = data.snappedPoints[0].placeId;
+                    // 2) Next call: Place Details API to get a real name
+                    const placeUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${apiKey}`;
+                    return fetch(placeUrl);
+                } else {
+                    // No roads found
+                    callback("(No Road Found)");
+                    // Return a resolved Promise so we don't go to the next .then
+                    return Promise.resolve(null);
+                }
+            })
+            .then(response => {
+                if (!response) return; // means we had no roads
+                return response.json();
+            })
+            .then(placeData => {
+                if (!placeData) return; // no roads
+                // placeData.result might contain a name or address
+                if (placeData && placeData.result) {
+                    // "name" might be something like "Highway 1" or "Main St"
+                    const roadName = placeData.result.name
+                        || placeData.result.formatted_address
+                        || "(No Road Name)";
+                    callback(roadName);
+                } else {
+                    callback("(No Road Found)");
+                }
+            })
+            .catch(err => {
+                console.error("getNearestRoad error:", err);
+                callback("(No Road Found)");
+            });
     }
 
     function loadRoadPolylines(file) {
