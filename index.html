@@ -179,7 +179,7 @@
     let googleApiKey = "__MY_API_KEY__";
     function loadGoogleMaps() {
         const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${googleApiKey}`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${googleApiKey}&libraries=places`;
         script.async = true;
         script.defer = true;
         script.onload = () => initMap(); // Initialize map after loading
@@ -267,13 +267,14 @@
             default:             return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
         }
     }
-
+    let placesService;
     function initMap() {
         loadingOverlay = document.getElementById("loadingOverlay");
         map = new google.maps.Map(document.getElementById("map"), {
             center: { lat: 49.2827, lng: -123.1207 },
             zoom: 6
         });
+        placesService = new google.maps.places.PlacesService(map);
         elevationService = new google.maps.ElevationService();
 
         map.addListener("zoom_changed", () => {
@@ -403,12 +404,12 @@
     }
 
     function placeMeasureMarker(latLng, label, finalize) {
-        // custom "X" icon
+        // same "X" icon marker code
         const svgIcon = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
-        <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
-      </svg>
-    `;
+    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+      <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
+    </svg>
+  `;
         const marker = new google.maps.Marker({
             position: latLng,
             map,
@@ -418,16 +419,16 @@
             }
         });
 
-        // retrieve the nearest road name asynchronously
+        // retrieve nearestRoad -> use callback to update InfoWindow
         getNearestRoad(latLng, (roadName) => {
             const lat = latLng.lat().toFixed(5);
             const lng = latLng.lng().toFixed(5);
 
             let content = `<strong>Point ${label}</strong><br/>
-                     Coordinates: ${lat}, ${lng}<br/>
-                     Nearest Road: ${roadName || "(No Road Found)"}`;
+                   Coordinates: ${lat}, ${lng}<br/>
+                   Nearest Road: ${roadName}`;
 
-            // If it's the second marker, compute distance from the first marker
+            // second marker => also show distance from measureMarkerA
             if (finalize && measureMarkerA) {
                 const distKm = haversineDistance(
                     measureMarkerA.getPosition().lat(), measureMarkerA.getPosition().lng(),
@@ -438,8 +439,6 @@
 
             const infoWindow = new google.maps.InfoWindow({ content });
             infoWindow.open(map, marker);
-
-            // On click, re-open
             marker.addListener("click", () => infoWindow.open(map, marker));
         });
 
@@ -450,44 +449,39 @@
     function getNearestRoad(latLng, callback) {
         const lat = latLng.lat();
         const lng = latLng.lng();
-
-        // 2a) First call the "nearestRoads" endpoint
+        const googleApiKey = "__MY_API_KEY__";
         const roadsUrl = `https://roads.googleapis.com/v1/nearestRoads?points=${lat},${lng}&key=${googleApiKey}`;
         fetch(roadsUrl)
-            .then(r => r.json())
+            .then(resp => resp.json())
             .then(data => {
                 if (data && data.snappedPoints && data.snappedPoints.length > 0) {
-                    // We got a placeId
                     const placeId = data.snappedPoints[0].placeId;
-                    // 2b) Then call the Places Details to get a friendlier name
-                    const placeUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${googleApiKey}`;
-                    return fetch(placeUrl);
+
+                    // 2) use the official PlacesService to get the road name
+                    // no CORS error, because it uses the Maps JS library internally
+                    const request = { placeId };
+                    placesService.getDetails(request, (result, status) => {
+                        if (status === google.maps.places.PlacesServiceStatus.OK && result) {
+                            const roadName = result.name
+                                || result.formatted_address
+                                || "(No Road Name)";
+                            callback(roadName);
+                        } else {
+                            console.warn("Place details error or no name:", status);
+                            callback("(No Road Found)");
+                        }
+                    });
                 } else {
-                    // No roads found
-                    callback("(No Road Found)");
-                    return Promise.resolve(null);
-                }
-            })
-            .then(resp => {
-                if (!resp) return null;
-                return resp.json();
-            })
-            .then(placeData => {
-                if (!placeData) return;
-                if (placeData.result) {
-                    const roadName = placeData.result.name
-                        || placeData.result.formatted_address
-                        || "(No Road Name)";
-                    callback(roadName);
-                } else {
+                    // no snappedPoints
                     callback("(No Road Found)");
                 }
             })
             .catch(err => {
-                console.error("Nearest road error:", err);
+                console.error("NearestRoads fetch error:", err);
                 callback("(No Road Found)");
             });
     }
+
 
     function loadRoadPolylines(file) {
         fetch(file)
