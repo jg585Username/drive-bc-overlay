@@ -449,7 +449,7 @@
     function getNearestRoad(latLng, callback) {
         const lat = latLng.lat();
         const lng = latLng.lng();
-        const googleApiKey = "__MY_API_KEY__";
+        //const googleApiKey = "__MY_API_KEY__";
         const roadsUrl = `https://roads.googleapis.com/v1/nearestRoads?points=${lat},${lng}&key=${googleApiKey}`;
         fetch(roadsUrl)
             .then(resp => resp.json())
