@@ -177,6 +177,7 @@
 
 <script>
     let googleApiKey = "__MY_API_KEY__";
+
     function loadGoogleMaps() {
         const script = document.createElement("script");
         script.src = `https://maps.googleapis.com/maps/api/js?key=${googleApiKey}&libraries=places`;
@@ -192,6 +193,7 @@
     let totalPolylineFiles = 4; // The number of GeoJSON files you're loading
 
     let map;
+    let placesService;
     let elevationService;
 
     let currentlySelectedPolyline = null;
@@ -226,9 +228,7 @@
     let measureMarkerA = null;
     let measureMarkerB = null;
     let measureLine   = null;
-
-    // We'll keep an interactive line that updates on mousemove
-    let measureInteractiveLine = null;
+    let measureInteractiveLine = null; // line that follows mouse
 
     // interpret colors by highway type
     function interpretRoadColor(hwy) {
@@ -267,7 +267,7 @@
             default:             return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
         }
     }
-    let placesService;
+
     function initMap() {
         loadingOverlay = document.getElementById("loadingOverlay");
         map = new google.maps.Map(document.getElementById("map"), {
@@ -342,7 +342,8 @@
                         icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
                         offset: "0",
                         repeat: "10px"
-                    }]
+                    }],
+                    clickable: false // so it doesn't intercept clicks
                 });
                 // We'll update measureInteractiveLine on "mousemove"
                 map.addListener("mousemove", onMeasureMouseMove);
@@ -355,16 +356,18 @@
                 google.maps.event.clearListeners(map, "mousemove");
                 // set the line to final positions
                 measureInteractiveLine.setPath([ measureMarkerA.getPosition(), measureMarkerB.getPosition() ]);
-                // rename measureInteractiveLine => measureLine (final)
-                measureLine = measureInteractiveLine;
+                measureLine = measureInteractiveLine; // rename
                 measureInteractiveLine = null;
 
                 // done measuring => turn measureMode off
                 measureMode = false;
+                // optional: setAllPolylinesClickable(true); if you want polylines re-clickable right away
+                setAllPolylinesClickable(true);
             }
         });
     }
 
+    // Collapsible events panel
     document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
         const panel = document.getElementById("eventPanel");
         if (panel.classList.contains("hide")) {
@@ -375,41 +378,54 @@
             toggleEventPanelBtn.textContent = "Show Events";
         }
     });
+
     function onMeasureMouseMove(e) {
         if (!measureInteractiveLine) return;
-        // update line path from markerA to the current mouse latlng
         measureInteractiveLine.setPath([
             measureMarkerA.getPosition(),
             e.latLng
         ]);
     }
 
+    // NEW: function to set all existing polylines clickable or not
+    function setAllPolylinesClickable(flag) {
+        drawnPolylines.forEach(obj => {
+            obj.polylineVisible.setOptions({ clickable: flag });
+            obj.polylineHitbox.setOptions({ clickable: flag });
+        });
+    }
+
     // toggles measure mode on/off, clearing old measure if needed
     function toggleMeasureMode() {
         measureMode = !measureMode;
-        // if turning on, we wait for user clicks
         if (measureMode) {
-            // clear any old measure
+            // turn measure ON => clear old measure
             if (measureMarkerA) { measureMarkerA.setMap(null); measureMarkerA = null; }
             if (measureMarkerB) { measureMarkerB.setMap(null); measureMarkerB = null; }
             if (measureLine)    { measureLine.setMap(null);    measureLine = null; }
             if (measureInteractiveLine) { measureInteractiveLine.setMap(null); measureInteractiveLine = null; }
+
+            // now disable polylines
+            setAllPolylinesClickable(false);
+
         } else {
-            // turning off => also clear
+            // measure mode OFF => clear measure markers if you want
             if (measureMarkerA) { measureMarkerA.setMap(null); measureMarkerA = null; }
             if (measureMarkerB) { measureMarkerB.setMap(null); measureMarkerB = null; }
             if (measureLine)    { measureLine.setMap(null);    measureLine = null; }
             if (measureInteractiveLine) { measureInteractiveLine.setMap(null); measureInteractiveLine = null; }
+
+            // re-enable polylines so user can click them again
+            setAllPolylinesClickable(true);
         }
     }
 
     function placeMeasureMarker(latLng, label, finalize) {
-        // same "X" icon marker code
         const svgIcon = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
-      <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
-    </svg>
-  `;
+          <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+            <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
+          </svg>
+        `;
         const marker = new google.maps.Marker({
             position: latLng,
             map,
@@ -425,10 +441,9 @@
             const lng = latLng.lng().toFixed(5);
 
             let content = `<strong>Point ${label}</strong><br/>
-                   Coordinates: ${lat}, ${lng}<br/>
-                   Nearest Road: ${roadName}`;
+                Coordinates: ${lat}, ${lng}<br/>
+                Nearest Road: ${roadName}`;
 
-            // second marker => also show distance from measureMarkerA
             if (finalize && measureMarkerA) {
                 const distKm = haversineDistance(
                     measureMarkerA.getPosition().lat(), measureMarkerA.getPosition().lng(),
@@ -441,24 +456,19 @@
             infoWindow.open(map, marker);
             marker.addListener("click", () => infoWindow.open(map, marker));
         });
-
         return marker;
     }
-
 
     function getNearestRoad(latLng, callback) {
         const lat = latLng.lat();
         const lng = latLng.lng();
-        //const googleApiKey = "__MY_API_KEY__";
+
         const roadsUrl = `https://roads.googleapis.com/v1/nearestRoads?points=${lat},${lng}&key=${googleApiKey}`;
         fetch(roadsUrl)
             .then(resp => resp.json())
             .then(data => {
                 if (data && data.snappedPoints && data.snappedPoints.length > 0) {
                     const placeId = data.snappedPoints[0].placeId;
-
-                    // 2) use the official PlacesService to get the road name
-                    // no CORS error, because it uses the Maps JS library internally
                     const request = { placeId };
                     placesService.getDetails(request, (result, status) => {
                         if (status === google.maps.places.PlacesServiceStatus.OK && result) {
@@ -472,7 +482,6 @@
                         }
                     });
                 } else {
-                    // no snappedPoints
                     callback("(No Road Found)");
                 }
             })
@@ -481,7 +490,6 @@
                 callback("(No Road Found)");
             });
     }
-
 
     function loadRoadPolylines(file) {
         fetch(file)
@@ -583,7 +591,6 @@
 
     function renderPolylinesForZoom() {
         clearDrawnPolylines();
-
         const currentZoom = map.getZoom();
         const showMajor = document.getElementById("toggleMajor").checked;
         const showResidential = document.getElementById("toggleResidential").checked;
@@ -617,11 +624,14 @@
         const pathLatLng = road.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
         const strokeCol = interpretRoadColor(road.props.highway || "(N/A)");
 
+        // By default, polylines are clickable = true
+        // but if measureMode is on, you might do clickable: false. We'll rely on setAllPolylinesClickable instead.
         const polylineVisible = new google.maps.Polyline({
             path: pathLatLng,
             strokeColor: strokeCol,
             strokeWeight: 2,
-            map
+            map,
+            clickable: !measureMode
         });
 
         const polylineHitbox = new google.maps.Polyline({
@@ -629,7 +639,8 @@
             strokeColor: strokeCol,
             strokeOpacity: 0.0,
             strokeWeight: 12,
-            map
+            map,
+            clickable: !measureMode
         });
 
         polylineVisible.highwayVal     = road.highwayVal;
@@ -671,6 +682,7 @@
             currentlySelectedPolyline = polylineVisible;
         });
 
+        // Store them so we can toggle clickable later
         drawnPolylines.push({ polylineVisible, polylineHitbox });
     }
 
@@ -685,9 +697,11 @@
                 const elevEnd   = results[results.length - 1].elevation;
                 const slopePercent = computeSlopePercent(polyline.pathLatLng, elevStart, elevEnd);
                 const elevations = results.map(r => r.elevation);
-                currentlySelectedInfoWindow = showRoadInfoWithElevation(polyline, clickLocation, elevations, slopePercent);
+                currentlySelectedInfoWindow =
+                    showRoadInfoWithElevation(polyline, clickLocation, elevations, slopePercent);
             } else {
-                currentlySelectedInfoWindow = showRoadInfoWithElevation(polyline, clickLocation, null, null);
+                currentlySelectedInfoWindow =
+                    showRoadInfoWithElevation(polyline, clickLocation, null, null);
             }
         });
     }
@@ -715,38 +729,38 @@
         }
 
         let content = `
-      <div style="min-width:220px;">
-        <p><strong>Road Name:</strong> ${name}</p>
-    `;
+          <div style="min-width:220px;">
+            <p><strong>Road Name:</strong> ${name}</p>
+        `;
         if (roadTypeFriendly !== "(N/A)") {
             content += `<p><strong>Road Type:</strong> ${roadTypeFriendly}</p>`;
         }
 
         content += `
-        <p><strong>Length (approx):</strong> ${lengthKm} km</p>
-        <p><strong>Slope (start-end):</strong> ${slopeText}</p>
-        <hr/>
-        ${makeTagLine("Cycleway", polyline.cycleway)}
-        ${makeTagLine("Sidewalk", polyline.sidewalk)}
-        ${makeTagLine("Surface", polyline.surface)}
-        ${makeTagLine("Max Speed (km/h)", polyline.maxspeed)}
-        ${makeTagLine("Lanes", polyline.lanes)}
-        ${makeTagLine("Width", polyline.width)}
-        ${makeTagLine("Oneway", polyline.oneway)}
-        ${makeTagLine("Access", polyline.access)}
-        ${makeTagLine("Motor Vehicle", polyline.motorVehicle)}
-        ${makeTagLine("Bicycle", polyline.bicycle)}
-        ${makeTagLine("Foot", polyline.foot)}
-        ${makeTagLine("Lit (Lighting)", polyline.lit)}
-        ${makeTagLine("Busway", polyline.busway)}
-        ${makeTagLine("Turn", polyline.turn)}
-    `;
+            <p><strong>Length (approx):</strong> ${lengthKm} km</p>
+            <p><strong>Slope (start-end):</strong> ${slopeText}</p>
+            <hr/>
+            ${makeTagLine("Cycleway", polyline.cycleway)}
+            ${makeTagLine("Sidewalk", polyline.sidewalk)}
+            ${makeTagLine("Surface", polyline.surface)}
+            ${makeTagLine("Max Speed (km/h)", polyline.maxspeed)}
+            ${makeTagLine("Lanes", polyline.lanes)}
+            ${makeTagLine("Width", polyline.width)}
+            ${makeTagLine("Oneway", polyline.oneway)}
+            ${makeTagLine("Access", polyline.access)}
+            ${makeTagLine("Motor Vehicle", polyline.motorVehicle)}
+            ${makeTagLine("Bicycle", polyline.bicycle)}
+            ${makeTagLine("Foot", polyline.foot)}
+            ${makeTagLine("Lit (Lighting)", polyline.lit)}
+            ${makeTagLine("Busway", polyline.busway)}
+            ${makeTagLine("Turn", polyline.turn)}
+        `;
 
         if (elevationArray) {
             content += `
-        <p><strong>Elevation Profile:</strong></p>
-        <canvas id="${uniqueId}" width="300" height="150" style="border:1px solid #ccc;"></canvas>
-      `;
+              <p><strong>Elevation Profile:</strong></p>
+              <canvas id="${uniqueId}" width="300" height="150" style="border:1px solid #ccc;"></canvas>
+            `;
         }
         content += `</div>`;
 
@@ -861,7 +875,7 @@
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
         const a = Math.sin(dLat/2)**2
-            + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R*c;
     }
@@ -967,6 +981,7 @@
         });
     }
 </script>
+
 </body>
 </html>
 
