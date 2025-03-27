@@ -1,5 +1,13 @@
 # drive-bc-overlay [![Netlify Status](https://api.netlify.com/api/v1/badges/231bab18-35f8-4e00-98fa-7b06a361f5d4/deploy-status)](https://app.netlify.com/sites/drivebc/deploys)
-Collection of important road data for the Metro Vancouver Area from OpenBC, OSM, and Google Maps in one place
+Collection of important road data for the Metro Vancouver Area and the rest of BC (OpenBC, OSM (overpass), and Google Maps/Roads/Places API) normally not available on Google Maps, Apple Maps, etc...
+
+## Stuff
+### Live road works/incidents/events updates
+![image](https://github.com/user-attachments/assets/8c8f1706-72fe-4000-b54b-953cb4b517a7)
+### Polylines with detailed road data and layers by road type
+![image](https://github.com/user-attachments/assets/41df7793-70c1-4825-8fac-24fca9aa7e2f)
+### Measurements to nearest road (Places API)
+![image](https://github.com/user-attachments/assets/9f6a4c9f-a6bd-4868-bf26-f2f2272ac609)
 
 ## Overpass Query
 
