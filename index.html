@@ -85,6 +85,7 @@
 
         /* NEW CODE: DISTANCE BUTTON */
         #measureBtn {
+            border-radius: 6px;
             position: absolute;
             top: 375px;
             left: 10px;
@@ -92,11 +93,11 @@
             padding: 5px 8px;
         }
         #measureBtn.active {
-            background-color: #ff6666; /* or something to indicate active */
+            border-radius: 6px;
+            background-color: #ff6666;
             color: #fff;
             border: 1px solid #cc3333;
         }
-        /* NEW CODE: COLLAPSIBLE SIDE PANEL for events */
         #eventPanel {
             font-family: Arial, Helvetica, sans-serif;
             position: absolute;
@@ -276,7 +277,7 @@
         loadingOverlay = document.getElementById("loadingOverlay");
         map = new google.maps.Map(document.getElementById("map"), {
             center: { lat: 49.2827, lng: -123.1207 },
-            zoom: 12 //6 for default
+            zoom: 14 //6 for default
         });
         placesService = new google.maps.places.PlacesService(map);
         elevationService = new google.maps.ElevationService();
