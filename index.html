@@ -611,23 +611,30 @@
     }
 
     function renderPolylinesForZoom() {
-        clearDrawnPolylines();
         const currentZoom = map.getZoom();
+        const showDetailed = currentZoom >= ZOOM_THRESHOLD;
         const showMajor = document.getElementById("toggleMajor").checked;
         const showResidential = document.getElementById("toggleResidential").checked;
+
+        // Clear existing elements efficiently
+        drawnPolylines.forEach(p => {
+            p.polylineVisible.setMap(null);
+            p.polylineHitbox.setMap(null);
+        });
+        drawnPolylines = [];
 
         allRoadFeatures.forEach(road => {
             const hwyType = road.props.highway;
             const isMajor = MAJOR_ROAD_TYPES.includes(hwyType);
             const isResidential = (hwyType === "residential");
 
-            const zoomCondition = ((currentZoom < ZOOM_THRESHOLD && isMajor)
-                || (currentZoom >= ZOOM_THRESHOLD));
+            // Combined visibility check
+            const shouldRender = (showDetailed || isMajor) &&
+                ((isMajor && showMajor) ||
+                    (isResidential && showResidential) ||
+                    (!isMajor && !isResidential));
 
-            if (!showMajor && isMajor) return;
-            if (!showResidential && isResidential) return;
-
-            if (zoomCondition) {
+            if (shouldRender) {
                 drawPolyline(road);
             }
         });
