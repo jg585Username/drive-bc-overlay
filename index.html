@@ -981,31 +981,83 @@
 
     function renderEventList() {
         const eventListDiv = document.getElementById("eventList");
-        eventListDiv.innerHTML = "";
+        eventListDiv.innerHTML = ""; // Clear previous list items
+
+        // Filter out null/undefined events first
+        allEvents = allEvents.filter(Boolean);
 
         allEvents.forEach(evt => {
-            if (!["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(evt.event_type)) return;
+            // Keep your original event type filter
+            if (!["CONSTRUCTION", "SPECIAL_EVENT", "INCIDENT"].includes(evt.event_type)) {
+                return; // Skip if not one of the desired types
+            }
 
             const d = document.createElement("div");
+            d.dataset.eventId = evt.id; // Add unique ID for ghost checking
+
+            // --- Keep your original event details rendering ---
             let locationText = "(No Location)";
-            if (evt.areas && Array.isArray(evt.areas) && evt.areas.length > 0) {
+            // Use optional chaining for safer access
+            if (evt.areas?.length > 0) {
                 locationText = evt.areas[0].name || "(No Area Name)";
             }
 
             d.innerHTML = `
-              <strong>${evt.event_type}</strong> - ${evt.headline || "(No Headline)"}<br/>
-              Severity: ${evt.severity || "(No Severity)"}<br/>
-              <em>Location:</em> ${locationText}
-            `;
+          <strong>${evt.event_type}</strong> - ${evt.headline || "(No Headline)"}<br/>
+          Severity: ${evt.severity || "(No Severity)"}<br/>
+          <em>Location:</em> ${locationText}
+        `;
+            // --- End of original rendering ---
 
+            // --- Combined Click Handler with Ghost Check ---
             d.addEventListener("click", () => {
-                if (evt.geography && evt.geography.type === "Point") {
+                // 1. Check if the event still exists in our main array
+                const eventExists = allEvents.some(e => e && e.id === evt.id);
+
+                if (!eventExists) {
+                    // If not, it's a ghost event - remove the DOM element
+                    console.warn(`Ghost event element clicked and removed: ${evt.id}`);
+                    d.remove();
+                    return; // Stop further processing
+                }
+
+                // 2. If it exists, perform your original actions:
+                // a) Place the marker (using your existing function)
+                placeEventMarker(evt);
+
+                // b) Center and zoom the map (if it's a point)
+                if (evt.geography?.type === "Point") {
                     const [lon, lat] = evt.geography.coordinates;
                     map.setCenter({ lat, lng: lon });
-                    map.setZoom(13);
+                    map.setZoom(13); // Or your desired zoom level
                 }
             });
+            // --- End of Combined Click Handler ---
+
             eventListDiv.appendChild(d);
+        });
+
+        // Call the cleanup function after rendering the current valid events
+        // Make sure you have the purgeGhostEvents function defined elsewhere in your code
+        purgeGhostEvents();
+    }
+
+    // ==================================================
+    // REMINDER: Ensure this function is also in your code
+    // (as provided previously)
+    // ==================================================
+    function purgeGhostEvents() {
+        if (!allEvents || !Array.isArray(allEvents)) return; // Safety check
+
+        const validIds = new Set(allEvents.map(e => e?.id).filter(Boolean)); // Get IDs of currently valid events
+        const eventElements = document.querySelectorAll('#eventList > div');
+
+        eventElements.forEach(el => {
+            const eventId = el.dataset.eventId; // Read the ID we stored
+            if (!eventId || !validIds.has(eventId)) {
+                // If the element's ID is not in the set of valid IDs, remove it
+                el.remove();
+            }
         });
     }
 </script>
