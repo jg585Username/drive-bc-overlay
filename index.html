@@ -385,21 +385,6 @@
             }
         });
     }
-    function requestABRoute(originLatLng, destinationLatLng) {
-        const request = {
-            origin: originLatLng,
-            destination: destinationLatLng,
-            travelMode: google.maps.TravelMode.DRIVING // or 'WALKING', 'BICYCLING', etc.
-        };
-
-        directionsService.route(request, (result, status) => {
-            if (status === google.maps.DirectionsStatus.OK) {
-                directionsRenderer.setDirections(result);
-            } else {
-                console.warn("Directions request failed:", status);
-            }
-        });
-    }
     // Collapsible events panel
     document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
         const panel = document.getElementById("eventPanel");
@@ -411,7 +396,41 @@
             toggleEventPanelBtn.textContent = "Show Events";
         }
     });
+    function requestABRoute(originLatLng, destinationLatLng) {
+        const request = {
+            origin: originLatLng,
+            destination: destinationLatLng,
+            travelMode: google.maps.TravelMode.DRIVING
+        };
 
+        directionsService.route(request, (result, status) => {
+            if (status === google.maps.DirectionsStatus.OK) {
+                // 1) Render the route on the map
+                directionsRenderer.setDirections(result);
+
+                // 2) Extract route distance & time from the first route/leg
+                const route = result.routes[0];
+                const leg = route.legs[0];
+                const routeDistance = leg.distance.text;  // e.g. "12.3 km"
+                const routeDuration = leg.duration.text;  // e.g. "15 mins"
+
+                // 3) Display in an InfoWindow near the destination (Point B)
+                const infoContent = `
+        <strong>Driving Route:</strong><br/>
+        Distance: ${routeDistance}<br/>
+        Duration: ${routeDuration}
+      `;
+                const infoWindow = new google.maps.InfoWindow({
+                    content: infoContent,
+                    position: destinationLatLng
+                });
+                infoWindow.open(map);
+
+            } else {
+                console.warn("Directions request failed:", status);
+            }
+        });
+    }
     function onMeasureMouseMove(e) {
         if (!measureInteractiveLine) return;
         measureInteractiveLine.setPath([
