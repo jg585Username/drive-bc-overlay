@@ -5,9 +5,9 @@ Collection of important road data for the Metro Vancouver Area and the rest of B
 ### Live road works/incidents/events updates
 ![image](https://github.com/user-attachments/assets/8c8f1706-72fe-4000-b54b-953cb4b517a7)
 ### Polylines with detailed road data and layers by road type
-<img width="294" alt="image" src="https://github.com/user-attachments/assets/d0a9c11b-16f8-4656-81a4-e0449a8994af" /> <img width="263" alt="image" src="https://github.com/user-attachments/assets/278d68ca-99b7-43e7-9823-69a5d7ae1684" />
+<img width="100%" alt="image" src="https://github.com/user-attachments/assets/d0a9c11b-16f8-4656-81a4-e0449a8994af" /> <img width="100%" alt="image" src="https://github.com/user-attachments/assets/278d68ca-99b7-43e7-9823-69a5d7ae1684" />
 ### Measurements to nearest road
-<img width="312" alt="image" src="https://github.com/user-attachments/assets/bb053d40-984e-48d1-8dd9-22b0d1743b5c" />
+<img width="100%" alt="image" src="https://github.com/user-attachments/assets/db72ea73-cc38-4865-9a88-8a7d1579ab80" />
 
 ## Overpass Query
 
