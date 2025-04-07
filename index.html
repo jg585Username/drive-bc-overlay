@@ -1031,20 +1031,52 @@
         eventListDiv.innerHTML = "";
 
         allEvents.forEach(evt => {
+            // Only show these event types
             if (!["CONSTRUCTION","SPECIAL_EVENT","INCIDENT"].includes(evt.event_type)) return;
 
-            const d = document.createElement("div");
+            // 1) Pick the icon based on event_type
+            let iconUrl;
+            switch(evt.event_type){
+                case "CONSTRUCTION":
+                    iconUrl = "images/construction.png";
+                    break;
+                case "SPECIAL_EVENT":
+                    iconUrl = "images/special_event.png";
+                    break;
+                case "INCIDENT":
+                    iconUrl = "images/incident.png";
+                    break;
+                default:
+                    iconUrl = "";
+            }
+
+            // 2) Build the HTML snippet, including the <img>
+            // If iconUrl is empty, it won't display an image.
             let locationText = "(No Location)";
             if (evt.areas && Array.isArray(evt.areas) && evt.areas.length > 0) {
                 locationText = evt.areas[0].name || "(No Area Name)";
             }
 
-            d.innerHTML = `
-              <strong>${evt.event_type}</strong> - ${evt.headline || "(No Headline)"}<br/>
-              Severity: ${evt.severity || "(No Severity)"}<br/>
-              <em>Location:</em> ${locationText}
-            `;
+            // For optional sizing, e.g. 16px wide
+            const iconHtml = iconUrl
+                ? `<img src="${iconUrl}" alt="${evt.event_type}" width="16" height="16" style="vertical-align:middle; margin-right:5px;">`
+                : "";
 
+            // 3) Fill out your event info:
+            const itemHtml = `
+          <div>
+            ${iconHtml}
+            <strong>${evt.event_type}</strong> – ${evt.headline || "(No Headline)"}<br/>
+            Severity: ${evt.severity || "(No Severity)"}<br/>
+            <em>Location:</em> ${locationText}
+          </div>
+        `;
+
+            // 4) Create a div wrapper and set innerHTML
+            const d = document.createElement("div");
+            d.innerHTML = itemHtml;
+
+            // 5) On click, zoom the map to this event
             d.addEventListener("click", () => {
                 if (evt.geography && evt.geography.type === "Point") {
                     const [lon, lat] = evt.geography.coordinates;
@@ -1052,9 +1084,12 @@
                     map.setZoom(13);
                 }
             });
+
+            // 6) Append to the eventList panel
             eventListDiv.appendChild(d);
         });
     }
+
 </script>
 
 </body>
