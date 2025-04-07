@@ -272,7 +272,8 @@
             default:             return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
         }
     }
-
+    let directionsService;
+    let directionsRenderer;
     function initMap() {
         loadingOverlay = document.getElementById("loadingOverlay");
         map = new google.maps.Map(document.getElementById("map"), {
@@ -281,6 +282,12 @@
         });
         placesService = new google.maps.places.PlacesService(map);
         elevationService = new google.maps.ElevationService();
+        directionsService = new google.maps.DirectionsService();
+
+        directionsRenderer = new google.maps.DirectionsRenderer({
+            suppressMarkers: true  // we already have our own markers
+        });
+        directionsRenderer.setMap(map);
         function debounce(func, timeout = 300) {
             let timer;
             return (...args) => {
@@ -374,10 +381,25 @@
                 measureMode = false;
                 // optional: setAllPolylinesClickable(true); if you want polylines re-clickable right away
                 setAllPolylinesClickable(true);
+                requestABRoute(measureMarkerA.getPosition(), measureMarkerB.getPosition());
             }
         });
     }
+    function requestABRoute(originLatLng, destinationLatLng) {
+        const request = {
+            origin: originLatLng,
+            destination: destinationLatLng,
+            travelMode: google.maps.TravelMode.DRIVING // or 'WALKING', 'BICYCLING', etc.
+        };
 
+        directionsService.route(request, (result, status) => {
+            if (status === google.maps.DirectionsStatus.OK) {
+                directionsRenderer.setDirections(result);
+            } else {
+                console.warn("Directions request failed:", status);
+            }
+        });
+    }
     // Collapsible events panel
     document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
         const panel = document.getElementById("eventPanel");
