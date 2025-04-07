@@ -195,15 +195,16 @@
 
     let loadingOverlay;
     let polylineLoadingCounter = 0;
-    let totalPolylineFiles = 4; // The number of GeoJSON files you're loading
+    let totalPolylineFiles = 4;
 
     let map;
     let placesService;
     let elevationService;
+    let directionsService;
+    let directionsRenderer;
 
     let currentlySelectedPolyline = null;
     let currentlySelectedInfoWindow = null;
-
     let allRoadFeatures = [];
     let drawnPolylines = [];
 
@@ -228,12 +229,12 @@
         "drivebc.ca/11": { lat: 54.0552, lng: -128.6526 }
     };
 
-    // --- Measure Distance State ---
+    // Measure Mode
     let measureMode = false;
     let measureMarkerA = null;
     let measureMarkerB = null;
     let measureLine   = null;
-    let measureInteractiveLine = null; // line that follows mouse
+    let measureInteractiveLine = null;
 
     // interpret colors by highway type
     function interpretRoadColor(hwy) {
@@ -272,29 +273,20 @@
             default:             return (hwy && hwy !== "(N/A)") ? hwy : "(N/A)";
         }
     }
-    let directionsService;
-    let directionsRenderer;
+
     function initMap() {
         loadingOverlay = document.getElementById("loadingOverlay");
         map = new google.maps.Map(document.getElementById("map"), {
             center: { lat: 49.232186, lng: -122.984336 },
-            zoom: 14 //6 for default
+            zoom: 14
         });
         placesService = new google.maps.places.PlacesService(map);
         elevationService = new google.maps.ElevationService();
         directionsService = new google.maps.DirectionsService();
-
-        directionsRenderer = new google.maps.DirectionsRenderer({
-            suppressMarkers: true  // we already have our own markers
-        });
+        directionsRenderer = new google.maps.DirectionsRenderer({ suppressMarkers: true });
         directionsRenderer.setMap(map);
-        function debounce(func, timeout = 300) {
-            let timer;
-            return (...args) => {
-                clearTimeout(timer);
-                timer = setTimeout(() => func.apply(this, args), timeout);
-            };
-        }
+
+        // For some reason you have a debounce on "zoom_changed"
         map.addListener("zoom_changed", debounce(() => {
             renderPolylinesForZoom();
         }));
@@ -350,7 +342,7 @@
             // If no markerA => place first marker
             if (!measureMarkerA) {
                 measureMarkerA = placeMeasureMarker(e.latLng, "A", false);
-                // create an interactive line from markerA to the mouse
+
                 measureInteractiveLine = new google.maps.Polyline({
                     path: [ measureMarkerA.getPosition(), measureMarkerA.getPosition() ],
                     map,
@@ -361,9 +353,8 @@
                         offset: "0",
                         repeat: "10px"
                     }],
-                    clickable: false // so it doesn't intercept clicks
+                    clickable: false
                 });
-                // We'll update measureInteractiveLine on "mousemove"
                 map.addListener("mousemove", onMeasureMouseMove);
 
             } else if (!measureMarkerB) {
@@ -374,29 +365,30 @@
                 google.maps.event.clearListeners(map, "mousemove");
                 // set the line to final positions
                 measureInteractiveLine.setPath([ measureMarkerA.getPosition(), measureMarkerB.getPosition() ]);
-                measureLine = measureInteractiveLine; // rename
+                measureLine = measureInteractiveLine;
                 measureInteractiveLine = null;
 
                 // done measuring => turn measureMode off
                 measureMode = false;
-                // optional: setAllPolylinesClickable(true); if you want polylines re-clickable right away
                 setAllPolylinesClickable(true);
-                requestABRoute(measureMarkerA.getPosition(), measureMarkerB.getPosition());
+
+                // We do not explicitly call requestABRoute(...) here since placeMeasureMarker
+                // will do it if 'finalize' is true (which it is for B).
             }
         });
     }
-    // Collapsible events panel
-    document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
-        const panel = document.getElementById("eventPanel");
-        if (panel.classList.contains("hide")) {
-            panel.classList.remove("hide");
-            toggleEventPanelBtn.textContent = "Hide Events";
-        } else {
-            panel.classList.add("hide");
-            toggleEventPanelBtn.textContent = "Show Events";
-        }
-    });
-    function requestABRoute(originLatLng, destinationLatLng) {
+
+    // Debounce helper (if you need it)
+    function debounce(func, timeout = 300) {
+        let timer;
+        return (...args) => {
+            clearTimeout(timer);
+            timer = setTimeout(() => func.apply(this, args), timeout);
+        };
+    }
+
+    // A function to request route from A->B and update an existing InfoWindow
+    function requestABRoute(originLatLng, destinationLatLng, infoWindow) {
         const request = {
             origin: originLatLng,
             destination: destinationLatLng,
@@ -408,29 +400,27 @@
                 // 1) Render the route on the map
                 directionsRenderer.setDirections(result);
 
-                // 2) Extract route distance & time from the first route/leg
+                // 2) Extract route distance/time
                 const route = result.routes[0];
                 const leg = route.legs[0];
-                const routeDistance = leg.distance.text;  // e.g. "12.3 km"
-                const routeDuration = leg.duration.text;  // e.g. "15 mins"
+                const distText = leg.distance.text;
+                const durText  = leg.duration.text;
 
-                // 3) Display in an InfoWindow near the destination (Point B)
-                const infoContent = `
-        <strong>Driving Route:</strong><br/>
-        Distance: ${routeDistance}<br/>
-        Duration: ${routeDuration}
-      `;
-                const infoWindow = new google.maps.InfoWindow({
-                    content: infoContent,
-                    position: destinationLatLng
-                });
-                infoWindow.open(map);
+                // 3) Append to the B InfoWindow
+                let oldContent = infoWindow.getContent();
+                let newContent = oldContent + `
+                    <br/><strong>Driving Route:</strong><br/>
+                    Distance: ${distText}<br/>
+                    Duration: ${durText}
+                `;
+                infoWindow.setContent(newContent);
 
             } else {
                 console.warn("Directions request failed:", status);
             }
         });
     }
+
     function onMeasureMouseMove(e) {
         if (!measureInteractiveLine) return;
         measureInteractiveLine.setPath([
@@ -439,7 +429,7 @@
         ]);
     }
 
-    // NEW: function to set all existing polylines clickable or not
+    // set polylines clickable or not
     function setAllPolylinesClickable(flag) {
         drawnPolylines.forEach(obj => {
             obj.polylineVisible.setOptions({ clickable: flag });
@@ -447,48 +437,47 @@
         });
     }
 
-    // toggles measure mode on/off, clearing old measure if needed
+    // measure mode toggling
     function toggleMeasureMode() {
         measureMode = !measureMode;
+        const measureBtn = document.getElementById("measureBtn");
+
         if (measureMode) {
-            // turn measure ON => clear old measure
+            // measure on => clear old
             if (measureMarkerA) { measureMarkerA.setMap(null); measureMarkerA = null; }
             if (measureMarkerB) { measureMarkerB.setMap(null); measureMarkerB = null; }
             if (measureLine)    { measureLine.setMap(null);    measureLine = null; }
-            if (measureInteractiveLine) { measureInteractiveLine.setMap(null); measureInteractiveLine = null; }
-
-            // now disable polylines
+            if (measureInteractiveLine) {
+                measureInteractiveLine.setMap(null); measureInteractiveLine = null;
+            }
             setAllPolylinesClickable(false);
-            map.setOptions({
-                draggableCursor: "crosshair"
-            });
 
+            map.setOptions({ draggableCursor: "crosshair" });
             measureBtn.classList.add("active");
+
         } else {
-            // measure mode OFF => clear measure markers if you want
+            // measure off => clear
             if (measureMarkerA) { measureMarkerA.setMap(null); measureMarkerA = null; }
             if (measureMarkerB) { measureMarkerB.setMap(null); measureMarkerB = null; }
             if (measureLine)    { measureLine.setMap(null);    measureLine = null; }
-            if (measureInteractiveLine) { measureInteractiveLine.setMap(null); measureInteractiveLine = null; }
-
-            // re-enable polylines so user can click them again
+            if (measureInteractiveLine) {
+                measureInteractiveLine.setMap(null); measureInteractiveLine = null;
+            }
             setAllPolylinesClickable(true);
-            map.setOptions({
-                draggableCursor: ""
-            });
 
-            // Remove highlight from measure button
+            map.setOptions({ draggableCursor: "" });
             measureBtn.classList.remove("active");
         }
     }
 
+    // UPDATED placeMeasureMarker
     function placeMeasureMarker(latLng, label, finalize) {
-        // 1) Create the marker with the “X” icon
+        // Create the "X" marker
         const svgIcon = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
-        <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
-      </svg>
-    `;
+          <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+            <text x="50%" y="50%" text-anchor="middle" dy=".35em" font-size="24" fill="red">×</text>
+          </svg>
+        `;
         const marker = new google.maps.Marker({
             position: latLng,
             map,
@@ -498,16 +487,16 @@
             }
         });
 
-        // 2) Create initial InfoWindow content with placeholder
+        // Build initial InfoWindow content
         const lat = latLng.lat().toFixed(5);
         const lng = latLng.lng().toFixed(5);
         let content = `
-        <strong>Point ${label}</strong><br/>
-        Coordinates: ${lat}, ${lng}<br/>
-        Nearest Road: (Loading...)
-    `;
+          <strong>Point ${label}</strong><br/>
+          Coordinates: ${lat}, ${lng}<br/>
+          Nearest Road: (Loading...)
+        `;
 
-        // If user is placing "B" (finalize = true), we also show the “straight line” distance from A
+        // if this is "B", also show straight line distance from A to B
         if (finalize && measureMarkerA) {
             const distKm = haversineDistance(
                 measureMarkerA.getPosition().lat(), measureMarkerA.getPosition().lng(),
@@ -516,22 +505,21 @@
             content += `<br/>Straight-Line Distance from A: ${distKm.toFixed(2)} km`;
         }
 
-        // 3) Build the InfoWindow with that initial content
+        // create the InfoWindow with that initial content
         const infoWindow = new google.maps.InfoWindow({ content });
         infoWindow.open(map, marker);
 
-        // On marker click, re-open the same InfoWindow
+        // on marker click, re-open same InfoWindow
         marker.addListener("click", () => infoWindow.open(map, marker));
 
-        // 4) Asynchronously fetch the nearest road...
+        // fetch nearest road
         getNearestRoad(latLng, (roadName) => {
-            // Replace the “(Loading...)” text in the InfoWindow with the actual road name
             let oldContent = infoWindow.getContent();
             let newContent = oldContent.replace("(Loading...)", roadName || "(No Road Found)");
             infoWindow.setContent(newContent);
         });
 
-        // 5) If this is “Point B,” also request a driving route from A->B (once you have B)
+        // If "B", also get directions from A->B and update same InfoWindow
         if (finalize && measureMarkerA) {
             requestABRoute(measureMarkerA.getPosition(), marker.getPosition(), infoWindow);
         }
@@ -539,7 +527,7 @@
         return marker;
     }
 
-
+    // getNearestRoad remains the same (Roads + Places), just updating the callback with roadName
     function getNearestRoad(latLng, callback) {
         const lat = latLng.lat();
         const lng = latLng.lng();
@@ -571,6 +559,8 @@
                 callback("(No Road Found)");
             });
     }
+
+    // The rest: loadRoadPolylines, showLoadingOverlay, hideLoadingOverlay, renderPolylinesForZoom, etc.
 
     function loadRoadPolylines(file) {
         fetch(file)
@@ -663,7 +653,6 @@
             loadingOverlay.style.display = 'flex';
         }
     }
-
     function hideLoadingOverlay() {
         if (loadingOverlay) {
             loadingOverlay.style.display = 'none';
@@ -676,7 +665,7 @@
         const showMajor = document.getElementById("toggleMajor").checked;
         const showResidential = document.getElementById("toggleResidential").checked;
 
-        // Clear existing elements efficiently
+        // Clear existing polylines
         drawnPolylines.forEach(p => {
             p.polylineVisible.setMap(null);
             p.polylineHitbox.setMap(null);
@@ -688,11 +677,10 @@
             const isMajor = MAJOR_ROAD_TYPES.includes(hwyType);
             const isResidential = (hwyType === "residential");
 
-            // Combined visibility check
-            const shouldRender = (showDetailed || isMajor) &&
-                ((isMajor && showMajor) ||
-                    (isResidential && showResidential) ||
-                    (!isMajor && !isResidential));
+            const shouldRender = (
+                (showDetailed || isMajor) &&
+                ((isMajor && showMajor) || (isResidential && showResidential) || (!isMajor && !isResidential))
+            );
 
             if (shouldRender) {
                 drawPolyline(road);
@@ -700,20 +688,10 @@
         });
     }
 
-    function clearDrawnPolylines() {
-        drawnPolylines.forEach(obj => {
-            obj.polylineVisible.setMap(null);
-            obj.polylineHitbox.setMap(null);
-        });
-        drawnPolylines = [];
-    }
-
     function drawPolyline(road) {
         const pathLatLng = road.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
         const strokeCol = interpretRoadColor(road.props.highway || "(N/A)");
 
-        // By default, polylines are clickable = true
-        // but if measureMode is on, you might do clickable: false. We'll rely on setAllPolylinesClickable instead.
         const polylineVisible = new google.maps.Polyline({
             path: pathLatLng,
             strokeColor: strokeCol,
@@ -770,7 +748,6 @@
             currentlySelectedPolyline = polylineVisible;
         });
 
-        // Store them so we can toggle clickable later
         drawnPolylines.push({ polylineVisible, polylineHitbox });
     }
 
