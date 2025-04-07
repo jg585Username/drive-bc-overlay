@@ -964,7 +964,16 @@
             })
             .catch(err => console.error("Error fetching events:", err));
     }
-
+    document.getElementById("toggleEventPanelBtn").addEventListener("click", () => {
+        const panel = document.getElementById("eventPanel");
+        if (panel.classList.contains("hide")) {
+            panel.classList.remove("hide");
+            toggleEventPanelBtn.textContent = "Hide Events";
+        } else {
+            panel.classList.add("hide");
+            toggleEventPanelBtn.textContent = "Show Events";
+        }
+    });
     function placeEventMarker(event) {
         if (!event.geography || event.geography.type !== "Point") return;
         const coords = event.geography.coordinates;
