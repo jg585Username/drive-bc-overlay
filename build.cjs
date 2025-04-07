@@ -44,3 +44,8 @@ imageFiles.forEach(filename => {
     fs.copyFileSync(src, dest);
 });
 console.log("Copied geojson files + images into dist/ folder");
+
+fs.copyFileSync(
+    path.join(__dirname, "favicon.png"),
+    path.join(distFolder, "favicon.png")
+);
